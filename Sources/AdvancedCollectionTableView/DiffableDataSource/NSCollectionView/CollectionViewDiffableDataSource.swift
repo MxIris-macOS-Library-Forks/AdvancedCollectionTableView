@@ -38,8 +38,10 @@ import QuickLookUI
  ```
 
  Then, you generate the current state of the data and display the data in the UI by constructing and applying a snapshot. For more information, see `NSDiffableDataSourceSnapshot`.
+ 
+ - Note: Each of your sections and elements must have unique identifiers.
 
- - Note: Don’t change the dataSource or delegate on the collection view after you configure it with a diffable data source. If the collection view needs a new data source after you configure it initially, create and configure a new collection view and diffable data source.
+ - Note: Don’t change the `dataSource` or `delegate` on the collection view after you configure it with a diffable data source. If the collection view needs a new data source after you configure it initially, create and configure a new collection view and diffable data source.
  */
 open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, Element: Identifiable & Hashable>: NSObject, NSCollectionViewDataSource {
     weak var collectionView: NSCollectionView!
@@ -49,7 +51,9 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
     var previousDisplayingItems = [Element.ID]()
     var magnifyGestureRecognizer: NSMagnificationGestureRecognizer?
     var rightDownMonitor: NSEvent.Monitor?
+    var keyDownMonitor: NSEvent.Monitor?
     var hoveredItemObserver: NSKeyValueObservation?
+    var pinchItem: Element?
 
     /// The closure that configures and returns the collection view’s supplementary views, such as headers and footers, from the diffable data source.
     open var supplementaryViewProvider: SupplementaryViewProvider?
@@ -93,7 +97,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
 
 
     /// A handler that gets called whenever collection view magnifies.
-    open var pinchHandler: ((_ mouseLocation: CGPoint, _ magnification: CGFloat, _ state: NSMagnificationGestureRecognizer.State) -> Void)? { didSet { observeMagnificationGesture() } }
+    open var pinchHandler: ((_ element: Element?, _ mouseLocation: CGPoint, _ magnification: CGFloat, _ state: NSMagnificationGestureRecognizer.State) -> Void)? { didSet { observeMagnificationGesture() } }
 
     func observeMagnificationGesture() {
         if pinchHandler != nil {
@@ -109,24 +113,25 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         }
     }
 
-    var pinchItem: Element?
     @objc func didMagnify(_ gesture: NSMagnificationGestureRecognizer) {
+        guard let pinchHandler = self.pinchHandler else { return }
         let pinchLocation = gesture.location(in: collectionView)
         switch gesture.state {
         case .began:
             //    let center = CGPoint(x: collectionView.frame.midX, y: collectionView.frame.midY)
             pinchItem = element(at: pinchLocation)
+            pinchHandler(pinchItem, pinchLocation, gesture.magnification, gesture.state)
         case .ended, .cancelled, .failed:
+            pinchHandler(pinchItem, pinchLocation, gesture.magnification, gesture.state)
             pinchItem = nil
         default:
-            break
+            pinchHandler(pinchItem, pinchLocation, gesture.magnification, gesture.state)
         }
-        pinchHandler?(pinchLocation, gesture.magnification, gesture.state)
     }
 
     func observeRightMouseDown() {
         if (menuProvider != nil || rightClickHandler != nil), rightDownMonitor == nil {
-            rightDownMonitor = NSEvent.localMonitor(for: [.rightMouseDown]) { event in
+            rightDownMonitor = NSEvent.localMonitor(for: .rightMouseDown) { event in
                 self.collectionView.menu = nil
                 if let contentView = self.collectionView.window?.contentView {
                     let location = event.location(in: contentView)
@@ -226,8 +231,6 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         }
         previousDisplayingItems = displayingItems
     }
-
-    var keyDownMonitor: NSEvent.Monitor?
 
     func observeKeyDown() {
         if let canDelete = deletingHandlers.canDelete {
@@ -384,18 +387,51 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
 
     // MARK: - DataSource implementation
 
+    /**
+     Returns the number of items in the specified section.
+     
+     If you call this method with the index of a section that doesn’t exist in the collection view, the app throws an error.
+     
+     - Parameters:
+        - collectionView: The collection view requesting this information.
+        - section: An index number identifying a section in the collection view. This index value is 0-based.
+     - Returns: The number of items in the specified section. This method returns 0 if the section is empty.
+     */
     open func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
         dataSource.collectionView(collectionView, numberOfItemsInSection: section)
     }
 
+    /**
+     Returns the cell that corresponds to the item at the specified index path in the collection view.
+     
+     - Parameters:
+        - collectionView: The collection view requesting this information.
+        - indexPath: The index path that specifies the location of the item.
+     - Returns: A configured cell object.
+     */
     open func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
         dataSource.collectionView(collectionView, itemForRepresentedObjectAt: indexPath)
     }
 
+    /**
+     Returns the number of sections in the collection view.
+     
+     - Parameter collectionView: The collection view requesting this information.
+     - Returns: The number of sections in the collection view. This method returns 0 if the collection view is empty.
+     */
     open func numberOfSections(in collectionView: NSCollectionView) -> Int {
         dataSource.numberOfSections(in: collectionView)
     }
 
+    /**
+     Returns a supplementary view for the specified element kind to display in the collection view.
+     
+     - Parameters:
+        - collectionView: The collection view requesting this information.
+        - kind: The kind of supplementary view to provide. The value of this string is defined by the layout object that supports the supplementary view.
+        - indexPath: The index path that specifies the location of the new supplementary view.
+     - Returns: A configured supplementary view object.
+     */
     open func collectionView(_ collectionView: NSCollectionView, viewForSupplementaryElementOfKind kind: NSCollectionView.SupplementaryElementKind, at indexPath: IndexPath) -> NSView {
         dataSource.collectionView(collectionView, viewForSupplementaryElementOfKind: kind, at: indexPath)
     }
@@ -923,6 +959,8 @@ extension CollectionViewDiffableDataSource where Element: QuicklookPreviewable {
      A Boolean value that indicates whether the user can open a quicklook preview of selected elements by pressing space bar.
      
      Any element conforming to `QuicklookPreviewable` can be previewed by providing a preview file url.
+     
+     For more information on how to provide previews, take a look at the `FZQuicklook` documentation.
      */
     public var isQuicklookPreviewable: Bool {
         get { collectionView.isQuicklookPreviewable }
@@ -933,6 +971,8 @@ extension CollectionViewDiffableDataSource where Element: QuicklookPreviewable {
      Opens `QuicklookPanel` that presents quicklook previews of the specified elements.
 
      To quicklook the selected elements, use collection view's `quicklookSelectedItems()`.
+     
+     For more information on how to provide previews, take a look at the `FZQuicklook` documentation.
 
      - Parameters:
         - elements: The elements to preview.

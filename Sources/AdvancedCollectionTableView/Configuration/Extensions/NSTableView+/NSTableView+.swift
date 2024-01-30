@@ -28,11 +28,8 @@ extension NSTableView {
     }
     func setupObservation(shouldObserve: Bool = true) {
         if shouldObserve {
-            if observingView == nil {
-                observingView = ObserverView()
-                addSubview(withConstraint: observingView!)
-                observingView!.sendToBack()
-                observingView?.windowHandlers.isKey = { [weak self] windowIsKey in
+            if windowHandlers.isKey == nil {
+                windowHandlers.isKey = { [weak self] windowIsKey in
                     guard let self = self else { return }
                     if windowIsKey == false {
                         self.hoveredRow = nil
@@ -40,14 +37,13 @@ extension NSTableView {
                     self.updateVisibleRowConfigurations()
                 }
 
-                observingView?.mouseHandlers.exited = { [weak self] _ in
-                    guard let self = self else { return true }
+                mouseHandlers.exited = { [weak self] _ in
+                    guard let self = self else { return }
                     self.hoveredRow = nil
-                    return true
                 }
 
-                observingView?.mouseHandlers.moved = { [weak self] event in
-                    guard let self = self else { return true }
+                mouseHandlers.moved = { [weak self] event in
+                    guard let self = self else { return }
                     let location = event.location(in: self)
                     if self.bounds.contains(location) {
                         let row = self.row(at: location)
@@ -57,7 +53,6 @@ extension NSTableView {
                             self.hoveredRow = nil
                         }
                     }
-                    return true
                 }
             }
             if didSwizzleIsEnabled == false {
@@ -81,14 +76,9 @@ extension NSTableView {
                 }
             }
         } else {
-            observingView?.removeFromSuperview()
-            observingView = nil
-        }
-    }
-
-    var observingView: ObserverView? {
-        get { getAssociatedValue(key: "tableView_observingView", object: self) }
-        set { set(associatedValue: newValue, key: "tableView_observingView", object: self)
+            windowHandlers.isKey = nil
+            mouseHandlers.exited = nil
+            mouseHandlers.moved = nil
         }
     }
 
