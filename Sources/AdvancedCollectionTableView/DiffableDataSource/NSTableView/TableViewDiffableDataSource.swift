@@ -517,11 +517,17 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         }
     }
     
-    /// Updates the data for the items you specify, preserving the existing table view cells for the items.
-    open func reloadItems(_ items: [Item]) {
+    /// Reloads the table view cells for the specified items.
+    open func reloadItems(_ items: [Item], animated: Bool = false) {
+        var snapshot = snapshot()
+        snapshot.reloadItems(items)
+        apply(snapshot, animated ? .animated : .withoutAnimation)
+    }
+    
+    /// Updates the data for the specified items, preserving the existing table view cells for the items.
+    open func reconfigureItems(_ items: [Item]) {
         let rows = IndexSet(items.compactMap { row(for: $0) })
-        let columns = IndexSet((0 ..< tableView.numberOfColumns).compactMap { $0 })
-        tableView.reloadData(forRowIndexes: rows, columnIndexes: columns)
+        tableView.reconfigureRows(at: rows)
     }
     
     /// An array of items that are visible.
@@ -585,16 +591,18 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         dataSource.row(forSectionIdentifier: section.id)
     }
     
+    /*
     /// Returns the section at the index in the table view.
     open func section(for index: Int) -> Section? {
         sections[safe: index]
     }
+     */
     
     /**
      Returns the section for the specified row in the table view.
      
      - Parameter row: The row of the section in the table view.
-     - Returns: The section, or `nil if the method doesn’t find the section for the row.
+     - Returns: The section, or `nil` if the method doesn’t find the section for the row.
      */
     func section(forRow row: Int) -> Section? {
         if let sectionID = dataSource.sectionIdentifier(forRow: row) {

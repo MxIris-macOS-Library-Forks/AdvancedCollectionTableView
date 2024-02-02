@@ -347,9 +347,10 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
 
         delegateBridge = DelegateBridge(self)
         collectionView.isQuicklookPreviewable = Element.self is QuicklookPreviewable.Type
-        collectionView.registerForDraggedTypes([.itemID])
+        collectionView.registerForDraggedTypes([.itemID, .fileURL, .tiff, .png, .string])
+        
         // collectionView.setDraggingSourceOperationMask(.move, forLocal: true)
-        // collectionView.setDraggingSourceOperationMask(.copy, forLocal: false)
+         collectionView.setDraggingSourceOperationMask(.copy, forLocal: false)
     }
 
     /**
@@ -395,6 +396,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
      - Parameters:
         - collectionView: The collection view requesting this information.
         - section: An index number identifying a section in the collection view. This index value is 0-based.
+     
      - Returns: The number of items in the specified section. This method returns 0 if the section is empty.
      */
     open func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
@@ -402,12 +404,13 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
     }
 
     /**
-     Returns the cell that corresponds to the item at the specified index path in the collection view.
+     Returns the item at the specified index path in the collection view.
      
      - Parameters:
         - collectionView: The collection view requesting this information.
         - indexPath: The index path that specifies the location of the item.
-     - Returns: A configured cell object.
+     
+     - Returns: A configured item object.
      */
     open func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
         dataSource.collectionView(collectionView, itemForRepresentedObjectAt: indexPath)
@@ -430,6 +433,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         - collectionView: The collection view requesting this information.
         - kind: The kind of supplementary view to provide. The value of this string is defined by the layout object that supports the supplementary view.
         - indexPath: The index path that specifies the location of the new supplementary view.
+     
      - Returns: A configured supplementary view object.
      */
     open func collectionView(_ collectionView: NSCollectionView, viewForSupplementaryElementOfKind kind: NSCollectionView.SupplementaryElementKind, at indexPath: IndexPath) -> NSView {
@@ -484,13 +488,13 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         return nil
     }
 
-    /// Updates the data for the elements you specify, preserving the existing collection view elements for the elements.
+    /// Updates the data for the specified elements, preserving the existing collection view items for the elements.
     open func reconfigureElements(_ elements: [Element]) {
         let indexPaths = elements.compactMap { indexPath(for: $0) }
         collectionView.reconfigureItems(at: indexPaths)
     }
 
-    /// Reloads the specified elements.
+    /// Reloads the collection view items for the specified elements.
     open func reloadElements(_ elements: [Element], animated: Bool = false) {
         var snapshot = dataSource.snapshot()
         snapshot.reloadItems(elements.ids)
@@ -904,51 +908,64 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
 
     /// Handlers for drag and drop of files from and to the collection view.
     struct DragDropHandlers {
-        public struct DropHandlers {
-            public var fileURLs: ((_ urls: [URL]) -> [Element])?
-            public var urls: ((_ urls: [URL]) -> [Element])?
-            public var images: ((_ images: [NSImage]) -> [Element])?
-            public var string: ((_ string: String) -> Element?)?
+        /// The handlers for dragging elements outside the collection view.
+        public struct OutsideHandlers {
+            /// The strings for the specified elements to write to the pasteboard.
+            public var string: ((_ element: Element) -> String?)?
+            /// The urls for the specified elements to write to the pasteboard.
+            public var url: ((_ element: Element) -> URL?)?
+            /// The images for the specified elements to write to the pasteboard.
+            public var image: ((_ element: Element) -> NSImage?)?
+            /// The colors for the specified elements to write to the pasteboard.
+            public var color: ((_ element: Element) -> NSColor?)?
+            /// The pasteboard items for the specified elements to write to the pasteboard.
+            public var pasteboardItem: ((_ element: Element) -> [NSPasteboardItem])?
+
+            /// The handler that determines whenever elements can be dragged outside the collection view.
+            public var canDrag: (([Element]) -> Bool)?
+            /// The handler that gets called when the handler will drag elements outside the collection view.
+            public var willDrag: (() -> ())?
+            /// The handler that gets called when the handler did drag elements outside the collection view.
+            public var didDrag: (() -> ())?
         }
 
-        public struct DraggedInside {
-            public var fileURLs: ((_ urls: [URL]) -> [Element])?
+        /// The handlers for dragging pasteboard items inside the collection view.
+        public struct InsideHandlers {
+            /// The handler that specifies the elements for the strings in the pasteboard.
+            public var strings: ((_ strings: [String]) -> [Element])?
+            /// The handler that specifies the elements for the file urls in the pasteboard.
+            public var fileURLs: ((_ fileURLs: [URL]) -> [Element])?
+            /// The handler that specifies the elements for the urls in the pasteboard.
             public var urls: ((_ urls: [URL]) -> [Element])?
+            /// The handler that specifies the elements for the images in the pasteboard.
             public var images: ((_ images: [NSImage]) -> [Element])?
-            public var string: ((_ string: String) -> Element?)?
-            public var color: ((_ string: NSColor) -> Element?)?
-            public var item: ((_ item: NSPasteboardItem) -> Element?)?
+            /// The handler that specifies the elements for the colors in the pasteboard.
+            public var colors: ((_ colors: [NSColor]) -> [Element])?
+            /// The handler that specifies the elements for the pasteboard items in the pasteboard.
+            public var pasteboardItems: ((_ items: [NSPasteboardItem]) -> [Element])?
+            
+            /// The handler that determines whenever pasteboard elements can be dragged inside the collection view.
+            public var canDrag: (([PasteboardReadWriting]) -> Bool)?
+            /// The handler that gets called when the handler will drag elements inside the collection view.
+            public var willDrag: ((_ transaction: NSDiffableDataSourceTransaction<Section, Element>) -> ())?
+            /// The handler that gets called when the handler did drag elements inside the collection view.
+            public var didDrag: ((_ transaction: NSDiffableDataSourceTransaction<Section, Element>) -> ())?
+            var needsTransaction: Bool {
+                willDrag != nil || didDrag != nil
+            }
         }
 
-        public var inside = DraggedInside()
+        /// The handlers for dragging pasteboard items inside the collection view.
+        public var inside = InsideHandlers()
 
-        public var drop = DropHandlers()
-
-        /// The handler that determines which elements can be dragged outside the collection view.
-        public var canDragOutside: ((_ elements: [Element]) -> [Element])?
-
-        /// The handler that gets called whenever elements did drag ouside the collection view.
-        public var didDragOutside: (([Element]) -> Void)?
+        /// The handlers for dragging elements outside the collection view.
+        public var outside = OutsideHandlers()
 
         /// The handler that determines the pasteboard value of an element when dragged outside the collection view.
         public var pasteboardValue: ((_ element: Element) -> PasteboardReadWriting)?
-
-        /// The handler that determines whenever pasteboard elements can be dragged inside the collection view.
-        public var canDragInside: (([PasteboardReadWriting]) -> [PasteboardReadWriting])?
-
-        /// The handler that gets called whenever pasteboard elements did drag inside the collection view.
-        public var didDragInside: (([PasteboardReadWriting]) -> Void)?
-
+        
         /// The handler that determines the image when dragging elements.
-        public var draggingImage: ((_ elements: [Element], NSEvent, NSPointPointer) -> NSImage?)?
-
-        var acceptsDragInside: Bool {
-            canDragInside != nil && didDragInside != nil
-        }
-
-        var acceptsDragOutside: Bool {
-            canDragOutside != nil
-        }
+        public var draggingImage: ((_ elements: [Element], _ event: NSEvent, _ screenLocation: CGPoint) -> NSImage?)?
     }
 }
 
