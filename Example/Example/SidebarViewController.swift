@@ -9,8 +9,8 @@ import AppKit
 import AdvancedCollectionTableView
 
 class SidebarViewController: NSViewController {
-    typealias CellRegistration = NSTableView.CellRegistration<NSTableCellView, SidebarItem>
     typealias DataSource = TableViewDiffableDataSource<Section, SidebarItem>
+    typealias CellRegistration = NSTableView.CellRegistration<NSTableCellView, SidebarItem>
     typealias SectionHeaderRegistration = NSTableView.SectionHeaderRegistration<NSTableSectionHeaderView, Section>
 
     @IBOutlet var tableView: NSTableView!
@@ -18,7 +18,7 @@ class SidebarViewController: NSViewController {
     lazy var dataSource = DataSource(tableView: tableView, cellRegistration: cellRegistration)
 
     let cellRegistration = CellRegistration { tableCell, _, _, sidebarItem in
-        // `defaultContentConfiguration` returns a table cell content configuration with default styling based on the table view it's displayed at (in this case a sidebar table).
+        /// `defaultContentConfiguration` returns a table cell content configuration with default styling based on the table view it's displayed at (in this case a sidebar table).
         var configuration = tableCell.defaultContentConfiguration()
         configuration.text = sidebarItem.title
         configuration.image = NSImage(systemSymbolName: sidebarItem.symbolName)
@@ -40,33 +40,27 @@ class SidebarViewController: NSViewController {
         tableView.dataSource = dataSource
         tableView.floatsGroupRows = false
 
-        // Enables reordering selected rows by dragging them.
+        /// Enables reordering selected rows by dragging them.
         dataSource.reorderingHandlers.canReorder = { selectedItem in return true }
         
-        // Enables deleting selected rows via backspace key.
+        /// Enables deleting selected rows via backspace key.
         dataSource.deletingHandlers.canDelete = { selectedItem in return selectedItem }
 
-        // Swipe row actions for deleting and favoriting an item.
+        /// Swipe row actions for deleting and favoriting an item.
         dataSource.rowActionProvider = { swippedItem, edge in
             if edge == .leading {
-                // Left swipe
-                return [NSTableViewRowAction(
-                    style: .regular, title: "",
-                    symbolName: swippedItem.isFavorite ? "star" : "star.fill",
-                    color: swippedItem.isFavorite ? .systemGray : .systemYellow
-                ) { _, _ in
-                    swippedItem.isFavorite = !swippedItem.isFavorite
-                    self.dataSource.reloadItems([swippedItem])
-                    self.tableView.rowActionsVisible = false
-                }]
+                /// Left swipe
+                return [NSTableViewRowAction.regular(symbolName: swippedItem.isFavorite ? "star" : "star.fill") { _,_ in
+                        swippedItem.isFavorite = !swippedItem.isFavorite
+                        self.dataSource.reconfigureItems([swippedItem])
+                        self.tableView.rowActionsVisible = false
+                    }]
             } else {
-                // Right swipe
-                return [NSTableViewRowAction(
-                    style: .destructive, title: "", symbolName: "trash.fill"
-                ) { _, _ in
-                    var currentSnapshot = self.dataSource.snapshot()
-                    currentSnapshot.deleteItems([swippedItem])
-                    self.dataSource.apply(currentSnapshot, .animated)
+                /// Right swipe
+                return [NSTableViewRowAction.destructive(symbolName: "trash.fill") { _,_ in
+                    var snapshot = self.dataSource.snapshot()
+                    snapshot.deleteItems([swippedItem])
+                    self.dataSource.apply(snapshot)
                 }]
             }
         }
