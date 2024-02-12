@@ -128,7 +128,7 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
      - else an empty array.
      */
     open var menuProvider: ((_ items: [Item]) -> NSMenu?)? = nil {
-        didSet { setupRightDownMonitor() }
+        didSet { setupMenuProvider() }
     }
     
     /**
@@ -140,7 +140,7 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
      - else an empty array.
      */
     open var rightClickHandler: ((_ items: [Item]) -> ())? = nil {
-        didSet { setupRightDownMonitor() }
+        didSet { setupRightDownHandler() }
     }
     
     /// Provides an array of row actions to be attached to the specified edge of a table row and displayed when the user swipes horizontally across the row.
@@ -162,54 +162,39 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         dataSource.defaultRowAnimation.rawValue
     }
     
-    func setupRightDownMonitor() {
-        if (menuProvider != nil || rightClickHandler != nil), rightDownMonitor == nil {
-            rightDownMonitor = NSEvent.localMonitor(for: [.rightMouseDown]) { event in
-                self.tableView.menu = nil
-                if let contentView = self.tableView.window?.contentView {
-                    let location = event.location(in: contentView)
-                    if let view = contentView.hitTest(location), view.isDescendant(of: self.tableView) {
-                        let location = event.location(in: self.tableView)
-                        if self.tableView.bounds.contains(location) {
-                            self.setupMenu(for: location)
-                            self.setupRightClick(for: location)
-                        }
-                    }
-                }
-                return event
+    func setupMenuProvider() {
+        if menuProvider != nil {
+            tableView.menuProvider = { [weak self] location in
+                guard let self = self else { return nil }
+                return self.menuProvider?(self.items(for: location))
             }
-        } else if menuProvider == nil && rightClickHandler == nil {
-            rightDownMonitor = nil
+        } else {
+            tableView.menuProvider = nil
         }
     }
     
-    func setupRightClick(for location: CGPoint) {
-        guard let rightClick = rightClickHandler else { return }
+    func setupRightDownHandler() {
+        if rightClickHandler != nil {
+            tableView.mouseHandlers.rightDown = { [weak self] event in
+                guard let self = self, let handler = self.rightClickHandler else { return }
+                let location = event.location(in: self.tableView)
+                handler(self.items(for: location))
+            }
+        } else {
+            tableView.mouseHandlers.rightDown = nil
+        }
+    }
+    
+    func items(for location: CGPoint) -> [Item] {
         if let item = item(at: location) {
             var items: [Item] = [item]
             let selectedItems = selectedItems
             if selectedItems.contains(item) {
                 items = selectedItems
             }
-            rightClick(items)
-        } else {
-            rightClick([])
+            return items
         }
-    }
-    
-    func setupMenu(for location: CGPoint) {
-        if let menuProvider = menuProvider {
-            if let item = item(at: location) {
-                var items: [Item] = [item]
-                let selectedItems = selectedItems
-                if selectedItems.contains(item) {
-                    items = selectedItems
-                }
-                tableView.menu = menuProvider(items)
-            } else {
-                tableView.menu = menuProvider([])
-            }
-        }
+        return []
     }
     
     func setupHoverObserving() {
@@ -314,6 +299,7 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         currentSnapshot = snapshot
         updateSectionRowIndexes()
         dataSource.apply(internalSnapshot, option, completion: completion)
+        updateEmptyCollectionView()
     }
     
     func updateSectionRowIndexes() {
@@ -449,12 +435,9 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
     }
     
     open func tableView(_: NSTableView, draggingSession _: NSDraggingSession, willBeginAt _: NSPoint, forRowIndexes rowIndexes: IndexSet) {
-        let items = dragingRowIndexes.compactMap({item(forRow: $0)})
-        if reorderingHandlers.canReorder?(items) == true {
-            dragingRowIndexes = rowIndexes
-        } else {
-            dragingRowIndexes.removeAll()
-        }
+        var items = dragingRowIndexes.compactMap({item(forRow: $0)})
+        items = reorderingHandlers.canReorder?(items) ?? []
+        dragingRowIndexes = .init(items.compactMap({row(for: $0)}))
     }
     
     open func tableView(_: NSTableView, draggingSession _: NSDraggingSession, endedAt _: NSPoint, operation _: NSDragOperation) {
@@ -469,7 +452,7 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         }
         return nil
     }
-    
+        
     // MARK: - Items
     
     /// All current items in the table view.
@@ -665,6 +648,24 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
     func rows(for sections: [Section]) -> [Int] {
         sections.flatMap { rows(for: $0) }
     }
+    
+    // MARK: - Empty Collection View
+    
+    /// The view that is displayed when the datasource doesn't contain any items.
+    open var emptyCollectionView: NSView? = nil {
+        didSet {
+            guard oldValue != emptyCollectionView else { return }
+            updateEmptyCollectionView()
+        }
+    }
+    
+    func updateEmptyCollectionView() {
+        if !currentSnapshot.itemIdentifiers.isEmpty && !currentSnapshot.sectionIdentifiers.isEmpty {
+            emptyCollectionView?.removeFromSuperview()
+        } else if let emptyCollectionView = self.emptyCollectionView {
+            tableView.addSubview(withConstraint: emptyCollectionView)
+        }
+    }
 
     // MARK: - Handlers
 
@@ -774,8 +775,8 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
      Take a look at ``reorderingHandlers-swift.property`` how to support reordering items.
      */
     public struct ReorderingHandlers {
-        /// The handler that determines if items can be reordered. The default value is `nil` which indicates that the items can be reordered.
-        public var canReorder: (([Item]) -> Bool)?
+        /// The handler that determines if items can be reordered. The default value is `nil` which indicates that the items can't be reordered.
+        public var canReorder: (([Item]) -> [Item])?
 
         /// The handler that that gets called before reordering items.
         public var willReorder: ((DiffableDataSourceTransaction<Section, Item>) -> Void)?
@@ -891,13 +892,13 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         public var didDragOutside: (([Item]) -> Void)?
 
         /// The handler that determines the pasteboard value of an item when dragged outside the table view.
-        public var pasteboardValue: ((_ item: Item) -> PasteboardReadWriting)?
+        public var pasteboardValue: ((_ item: Item) -> PasteboardContent)?
 
         /// The handler that determines whenever pasteboard items can be dragged inside the table view.
-        public var canDragInside: (([PasteboardReadWriting]) -> [PasteboardReadWriting])?
+        public var canDragInside: (([PasteboardContent]) -> [PasteboardContent])?
 
         /// The handler that gets called whenever pasteboard items did drag inside the table view.
-        public var didDragInside: (([PasteboardReadWriting]) -> Void)?
+        public var didDragInside: (([PasteboardContent]) -> Void)?
 
         /// The handler that determines the image when dragging items.
         public var draggingImage: ((_ items: [Item], NSEvent, NSPointPointer) -> NSImage?)?
