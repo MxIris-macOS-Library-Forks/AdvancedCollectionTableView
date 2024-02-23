@@ -23,10 +23,3 @@ extension NSDiffableDataSourceSnapshot where ItemIdentifierType: Identifiable, S
         return identifiableSnapshot
     }
 }
-
-extension NSDiffableDataSourceSnapshot {
-    /// A Boolean value indicating whether the snapshot is empty.
-    var isEmpty: Bool {
-        numberOfItems == 0 && numberOfSections == 0
-    }
-}
