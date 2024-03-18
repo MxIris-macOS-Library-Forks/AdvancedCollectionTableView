@@ -43,24 +43,17 @@ extension NSTableView {
      - Returns:The table cell view, or `nil` if the cell class isn't registered or the cell couldn't be created.
      */
     public func makeView<TableCellView: NSTableCellView>(for cellClass: TableCellView.Type) -> TableCellView? {
-        return makeView(for: cellClass, withIdentifier: .init(cellClass))
+        makeView(for: cellClass, withIdentifier: .init(cellClass))
     }
 
     func makeView<TableCellView: NSTableCellView>(for _: TableCellView.Type, withIdentifier identifier: NSUserInterfaceItemIdentifier) -> TableCellView? {
-        if isReconfiguratingRows, let reconfigureIndexPath = reconfigureIndexPath, let cell = view(atColumn: reconfigureIndexPath.section, row: reconfigureIndexPath.item, makeIfNecessary: false) as? TableCellView {
-            return cell
-        }
-        return makeView(withIdentifier: identifier, owner: nil) as? TableCellView
+        makeView(withIdentifier: identifier, owner: nil) as? TableCellView
     }
-
-    /**
-     The dictionary of all registered cells for view-based table view identifiers.
-
-     Each key in the dictionary is the identifier string (given by `NSUserInterfaceItemIdentifier`) used to register the cell view in the ``register(_:forIdentifier:)`` method. The value of each key is the corresponding `NSTableCellView` class.
-     */
+    
+    /// The dictionary of all registered cells for view-based table view identifiers.
     var registeredCellsByIdentifier: [NSUserInterfaceItemIdentifier: NSTableCellView.Type] {
-        get { getAssociatedValue(key: "registeredCellsByIdentifier", object: self, initialValue: [:]) }
-        set { set(associatedValue: newValue, key: "registeredCellsByIdentifier", object: self) }
+        get { getAssociatedValue("registeredCellsByIdentifier", initialValue: [:]) }
+        set { setAssociatedValue(newValue, key: "registeredCellsByIdentifier") }
     }
 
     @objc func swizzled_register(_ nib: NSNib?, forIdentifier identifier: NSUserInterfaceItemIdentifier) {
@@ -85,10 +78,10 @@ extension NSTableView {
         }
         return swizzled_makeView(withIdentifier: identifier, owner: owner)
     }
-
+    
     static var didSwizzleCellRegistration: Bool {
-        get { getAssociatedValue(key: "didSwizzleCellRegistration", object: self, initialValue: false) }
-        set { set(associatedValue: newValue, key: "didSwizzleCellRegistration", object: self) }
+        get { FZSwiftUtils.getAssociatedValue(key: "didSwizzleCellRegistration", object: NSTableView.self, initialValue: false) }
+        set { FZSwiftUtils.set(associatedValue: newValue, key: "didSwizzleCellRegistration", object: NSTableView.self) }
     }
 
     @objc static func swizzleCellRegistration() {

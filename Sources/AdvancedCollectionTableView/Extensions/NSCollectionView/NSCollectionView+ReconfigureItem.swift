@@ -23,23 +23,22 @@ extension NSCollectionView {
         Self.swizzleMakeItem()
         isReconfiguratingItems = true
         let visibleIndexPaths = indexPathsForVisibleItems()
+        let indexPaths = indexPaths.filter({visibleIndexPaths.contains($0)})
         for indexPath in indexPaths {
-            if visibleIndexPaths.contains(indexPath) {
-                dataSource?.collectionView(self, itemForRepresentedObjectAt: indexPath)
-            }
+            dataSource?.collectionView(self, itemForRepresentedObjectAt: indexPath)
         }
         isReconfiguratingItems = false
     }
 
     var isReconfiguratingItems: Bool {
-        get { getAssociatedValue(key: "isReconfiguratingItems", object: self, initialValue: false) }
-        set { set(associatedValue: newValue, key: "isReconfiguratingItems", object: self)
+        get { getAssociatedValue("isReconfiguratingItems", initialValue: false) }
+        set { setAssociatedValue(newValue, key: "isReconfiguratingItems")
         }
     }
     
     static var didSwizzleMakeItem: Bool {
-        get { getAssociatedValue(key: "didSwizzleMakeItem", object: self, initialValue: false) }
-        set { set(associatedValue: newValue, key: "didSwizzleMakeItem", object: self) }
+        get { getAssociatedValue("didSwizzleMakeItem", initialValue: false) }
+        set { setAssociatedValue(newValue, key: "didSwizzleMakeItem") }
     }
 
     @objc static func swizzleMakeItem() {
