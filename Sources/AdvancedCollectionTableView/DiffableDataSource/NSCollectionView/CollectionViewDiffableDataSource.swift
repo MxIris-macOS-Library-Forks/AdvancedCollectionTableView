@@ -169,12 +169,6 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         return []
     }
 
-    func setupMenu(for location: CGPoint) {
-        guard let menuProvider = menuProvider else { return }
-        let items = elements(for: location)
-        collectionView.menu = menuProvider(items)
-    }
-
     func observeHoveredItem() {
         if hoverHandlers.shouldObserve {
             collectionView.setupObservation()
