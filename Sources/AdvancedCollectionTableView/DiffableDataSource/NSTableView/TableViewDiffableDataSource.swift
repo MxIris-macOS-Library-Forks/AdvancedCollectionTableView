@@ -47,7 +47,7 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
     var dragingRowIndexes = IndexSet()
     var sectionRowIndexes: [Int] = []
     var hoveredRowObserver: KeyValueObservation?
-    var delegateBridge: DelegateBridge!
+    var delegateBridge: Delegate!
     
     /// The closure that configures and returns the table view’s row views from the diffable data source.
     open var rowViewProvider: RowProvider? {
@@ -296,7 +296,7 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         currentSnapshot = snapshot
         updateSectionRowIndexes()
         dataSource.apply(internalSnapshot, option, completion: completion)
-        updateEmptyView(snapshot, previousIsEmpty: previousIsEmpty)
+        updateEmptyView(previousIsEmpty: previousIsEmpty)
     }
     
     func updateSectionRowIndexes() {
@@ -401,8 +401,9 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
             return cellProvider(tableview, tablecolumn, row, item)
         })
         
-        delegateBridge = DelegateBridge(self)
-        tableView.registerForDraggedTypes([.itemID])
+        delegateBridge = Delegate(self)
+        tableView.registerForDraggedTypes([.itemID, .fileURL, .tiff, .png, .string])
+
         // tableView.setDraggingSourceOperationMask(.move, forLocal: true)
         // tableView.setDraggingSourceOperationMask(.move, forLocal: true)
         tableView.isQuicklookPreviewable = Item.self is QuicklookPreviewable.Type
@@ -427,28 +428,72 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         dataSource.numberOfRows(in: tableView)
     }
     
-    open func tableView(_: NSTableView, acceptDrop _: NSDraggingInfo, row: Int, dropOperation _: NSTableView.DropOperation) -> Bool {
-        if dragingRowIndexes.isEmpty == false {
+    public func tableView(_ tableView: NSTableView, updateDraggingItemsForDrag draggingInfo: NSDraggingInfo) {
+        if let draggingImage = draggingHandlers.draggingImage {
+            draggingInfo.enumerateDraggingItems(for: tableView, classes: [IdentifiablePasteboardItem<Item>.self], using: { draggingItem,_,_ in
+                if let item = (draggingItem.item as? IdentifiablePasteboardItem<Item>)?.element {
+                    if let image = draggingImage(item) {
+                        draggingItem.imageComponentsProvider = {
+                            return [.init(image: image.0, frame: image.1)]
+                        }
+                    }
+                }
+            })
+        }
+    }
+    
+    open func tableView(_: NSTableView, acceptDrop draggingInfo: NSDraggingInfo, row: Int, dropOperation _: NSTableView.DropOperation) -> Bool {
+        if !dragingRowIndexes.isEmpty {
             if let transaction = movingTransaction(at: dragingRowIndexes, to: row) {
                 let selectedItems = selectedItems
                 reorderingHandlers.willReorder?(transaction)
                 apply(transaction.finalSnapshot, .withoutAnimation)
                 selectItems(selectedItems)
                 reorderingHandlers.didReorder?(transaction)
-            } else {
-                return false
+                return true
             }
+        }
+        let elements = droppingHandlers.canDrop?(draggingInfo.contents) ?? []
+        if !elements.isEmpty {
+            var snapshot = snapshot()
+            if let item = item(forRow: row) {
+                snapshot.insertItems(elements, beforeItem: item)
+            } else if let section = section(forRow: row) {
+                if let item = item(forRow: row - 1) {
+                    snapshot.insertItems(elements, afterItem: item)
+                } else {
+                    snapshot.appendItems(elements, toSection: section)
+                }
+            } else if let section = sections.last {
+                snapshot.appendItems(elements, toSection: section)
+            }
+
+            var transaction: DiffableDataSourceTransaction<Section, Item>?
+            if droppingHandlers.needsTransaction {
+                transaction = .init(initial: self.snapshot(), final: snapshot)
+                droppingHandlers.willDrop?(transaction!)
+            }
+            let selectedItems = selectedItems
+            apply(snapshot, .animated)
+            selectItems(selectedItems)
+            droppingHandlers.didDrop?(transaction!)
+            return true
         }
         return true
     }
     
-    open func tableView(_: NSTableView, validateDrop _: NSDraggingInfo, proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
-        guard dragingRowIndexes.isEmpty == false, dropOperation == .above else { return [] }
-        
-        if row >= (sectionHeaderCellProvider != nil ? 1 : 0) {
-            return .move
+    open func tableView(_: NSTableView, validateDrop draggingInfo: NSDraggingInfo, proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
+        if !dragingRowIndexes.isEmpty, dropOperation == .above {
+            if row >= (sectionHeaderCellProvider != nil ? 1 : 0) {
+                return .move
+            }
+            return []
         }
-        
+        if let draggingSource = draggingInfo.draggingSource as? NSTableView, draggingSource == tableView {
+            return NSDragOperation.move
+        } else if !draggingInfo.contents.isEmpty {
+            return NSDragOperation.copy
+        }
         return []
     }
     
@@ -459,13 +504,13 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
     }
     
     open func tableView(_: NSTableView, draggingSession _: NSDraggingSession, endedAt _: NSPoint, operation _: NSDragOperation) {
-        dragingRowIndexes.removeAll()
+        dragingRowIndexes = []
     }
     
     open func tableView(_: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
-        if let itemId = item(forRow: row)?.id.hashValue {
-            let pasteboardItem = NSPasteboardItem()
-            pasteboardItem.setString(String(itemId), forType: .itemID)
+        if let item = item(forRow: row) {
+            let pasteboardItem = IdentifiablePasteboardItem(item)
+            pasteboardItem.contents = draggingHandlers.pasteboardContent?(item) ?? []
             return pasteboardItem
         }
         return nil
@@ -675,65 +720,69 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         didSet {
             guard oldValue != emptyView else { return }
             oldValue?.removeFromSuperview()
+            scrollViewContentViewObservation = nil
             if emptyView != nil {
                 emptyContentConfiguration = nil
-                updateEmptyView(snapshot())
+                updateEmptyView()
             }
         }
     }
-
+    
     /**
      The content configuration that content view is displayed when the datasource doesn't contain any items.
      
      When using this property, ``emptyView`` is set to `nil`.
      */
-    open var emptyContentConfiguration: NSContentConfiguration? = nil {
-        didSet {
-            if let configuration = emptyContentConfiguration {
-                emptyView = nil
+    open var emptyContentConfiguration: NSContentConfiguration? {
+        get { emptyContentView?.contentConfiguration }
+        set {
+            if let configuration = newValue {
                 if let emptyContentView = self.emptyContentView {
                     emptyContentView.contentConfiguration = configuration
                 } else {
                     emptyContentView = .init(configuration: configuration)
                 }
-                updateEmptyView(snapshot())
+                emptyView = nil
+                updateEmptyView()
             } else {
-                emptyContentView?.removeFromSuperview()
+                scrollViewContentViewObservation = nil
                 emptyContentView = nil
             }
         }
     }
     
+    var emptyContentView: ContentConfigurationView?
+    
     /**
      The handler that gets called when the data source switches between an empty and non-empty snapshot or viceversa.
           
-     You can use this handler e.g. if you want to update your empty view or content configuration.
+     You can use this handler e.g. if you want to update your empty content configuration or view.
      
      - Parameter isEmpty: A Boolean value indicating whether the current snapshot is empty.
      */
     open var emptyHandler: ((_ isEmpty: Bool)->())? {
         didSet {
-            emptyHandler?(snapshot().isEmpty)
+            emptyHandler?(currentSnapshot.isEmpty)
         }
     }
     
-    var emptyContentView: ContentConfigurationView?
+    var scrollViewContentViewObservation: KeyValueObservation?
     
-     func updateEmptyView(_ snapshot: NSDiffableDataSourceSnapshot<Section, Item>, previousIsEmpty: Bool? = nil) {
-         if !snapshot.isEmpty {
-             emptyView?.removeFromSuperview()
-             emptyContentView?.removeFromSuperview()
-         } else if let emptyView = self.emptyView, emptyView.superview != tableView {
-             tableView.addSubview(withConstraint: emptyView)
-         } else if let emptyContentView = self.emptyContentView, emptyContentView.superview != tableView {
-             tableView.addSubview(withConstraint: emptyContentView)
-         }
-         if let emptyHandler = self.emptyHandler, let previousIsEmpty = previousIsEmpty {
-             let isEmpty = snapshot.isEmpty
-             if previousIsEmpty != isEmpty {
-                 emptyHandler(isEmpty)
-             }
-         }
+    func updateEmptyView(previousIsEmpty: Bool? = nil) {
+        if !currentSnapshot.isEmpty {
+            emptyView?.removeFromSuperview()
+            emptyContentView?.removeFromSuperview()
+            scrollViewContentViewObservation = nil
+        } else if let emptyView = self.emptyView, emptyView.superview != tableView {
+            tableView?.addSubview(withConstraint: emptyView)
+        } else if let emptyContentView = self.emptyContentView, emptyContentView.superview != tableView {
+            tableView?.addSubview(withConstraint: emptyContentView)
+        }
+        if let emptyHandler = self.emptyHandler, let previousIsEmpty = previousIsEmpty {
+            if previousIsEmpty != currentSnapshot.isEmpty {
+                emptyHandler(currentSnapshot.isEmpty)
+            }
+        }
      }
 
     // MARK: - Handlers
@@ -819,9 +868,12 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
 
     /// The handlers for table columns.
     open var columnHandlers = ColumnHandlers()
-
-    /// The handlers for drag and drop of files from and to the table view.
-    var dragDropHandlers = DragDropHandlers()
+    
+    /// The handlers for dragging pasteboard items inside the table view.
+    public var droppingHandlers = DroppingHandlers()
+    
+    /// The handlers for dragging elements outside the table view.
+    public var draggingHandlers = DraggingHandlers()
 
     /// Handlers for selecting items.
     public struct SelectionHandlers {
@@ -960,33 +1012,30 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         public var sortDescriptorsChanged: ((_ old: [NSSortDescriptor], _ new: [NSSortDescriptor]) -> Void)?
 
     }
-
-    /// Handlers for drag and drop of files from and to the table view.
-    struct DragDropHandlers {
-        /// The handler that determines which items can be dragged outside the table view.
-        public var canDragOutside: ((_ items: [Item]) -> [Item])?
-
-        /// The handler that gets called whenever items did drag ouside the table view.
-        public var didDragOutside: (([Item]) -> Void)?
-
-        /// The handler that determines the pasteboard value of an item when dragged outside the table view.
-        public var pasteboardValue: ((_ item: Item) -> PasteboardContent)?
-
-        /// The handler that determines whenever pasteboard items can be dragged inside the table view.
-        public var canDragInside: (([PasteboardContent]) -> [PasteboardContent])?
-
-        /// The handler that gets called whenever pasteboard items did drag inside the table view.
-        public var didDragInside: (([PasteboardContent]) -> Void)?
-
-        /// The handler that determines the image when dragging items.
-        public var draggingImage: ((_ items: [Item], NSEvent, NSPointPointer) -> NSImage?)?
-
-        var acceptsDragInside: Bool {
-            canDragInside != nil && didDragInside != nil
-        }
-
-        var acceptsDragOutside: Bool {
-            canDragOutside != nil
+    
+    /// Handlers for dragging items outside the table view.
+    public struct DraggingHandlers {
+        /// The handler that determines whenever items can be dragged outside the table view.
+        public var canDrag: ((_ items: [Item])->(Bool))?
+        /// The handler that gets called when the handler did drag items outside the table view.
+        public var didDrag: ((_ items: [Item]) -> ())?
+        /// The handler that provides the pasteboard content for an item that can be dragged outside the table view.
+        public var pasteboardContent: ((_ item: Item)->([PasteboardContent]))?
+        /// The handler that determines the image when dragging elements outside the table view.
+        public var draggingImage: ((_ item: Item) -> (NSImage, CGRect?)?)?
+    }
+    
+    /// Handlers for dragging pasteboard items inside the table view.
+    public struct DroppingHandlers {
+        /// The handler that determines whenever pasteboard elements can be dragged inside the table view.
+        public var canDrop: ((_ contents: [PasteboardContent]) -> ([Item]))?
+        /// The handler that gets called when the handler will drag pasteboard items inside the table view.
+        public var willDrop: ((_ transaction: DiffableDataSourceTransaction<Section, Item>) -> ())?
+        /// The handler that gets called when the handler did drag pasteboard inside the table view.
+        public var didDrop: ((_ transaction: DiffableDataSourceTransaction<Section, Item>) -> ())?
+        
+        var needsTransaction: Bool {
+            willDrop != nil || didDrop != nil
         }
     }
 }
@@ -1035,216 +1084,3 @@ extension TableViewDiffableDataSource: NSTableViewQuicklookProvider {
         return nil
     }
 }
-
-/*
- public func section(for item: Item) -> Section? {
- return self.currentSnapshot.sectionIdentifier(containingItem: item)
- }
-
- public func frame(for item: Item) -> CGRect? {
- self.tableView.fram
- if let index = row(for: item)?.item {
- return self.collectionView.frameForItem(at: index)
- }
- return nil
- }
-
- public func reconfigurateItems(_ items: [Item]) {
- let indexPaths = items.compactMap({self.indexPath(for:$0)})
- self.reconfigureItems(at: indexPaths)
- }
-
- public func reconfigureItems(at indexPaths: [IndexPath]) {
- self.collectionView.reconfigureItems(at: indexPaths)
- }
-
- public func reloadItems(at rows: [Int], animated: Bool = false) {
- let items = rows.compactMap({self.item(forRow: $0)})
- self.reloadItems(items, animated: animated)
- }
-
- public func reloadItems(_ items: [Item], animated: Bool = false) {
- var snapshot = dataSource.snapshot()
- snapshot.reloadItems(items.ids)
- dataSource.apply(snapshot, animated ? .animated: .withoutAnimation)
- }
-
- public func reloadAllItems(animated: Bool = false, complection: (() -> Void)? = nil) {
- var snapshot = snapshot()
- snapshot.reloadItems(snapshot.itemIdentifiers)
- self.apply(snapshot, animated ? .animated : .usingReloadData)
- }
-
- public func selectAll() {
- self.tableView.selectAll(nil)
- }
-
- public func deselectAll() {
- self.tableView.deselectAll(nil)
- }
-
- func moveItems( _ items: [Item], before beforeItem: Item) {
- var snapshot = self.snapshot()
- items.forEach({snapshot.moveItem($0, beforeItem: beforeItem)})
- self.apply(snapshot)
- }
-
- func moveItems( _ items: [Item], after afterItem: Item) {
- var snapshot = self.snapshot()
- items.forEach({snapshot.moveItem($0, afterItem: afterItem)})
- self.apply(snapshot)
- }
-
- func moveItems(at rows: [Int], to toRow: Int) {
- let items = rows.compactMap({self.item(forRow: $0)})
- if let toItem = self.item(forRow: toRow), items.isEmpty == false {
- var snapshot = self.snapshot()
- items.forEach({snapshot.moveItem($0, beforeItem: toItem)})
- self.apply(snapshot)
- //  self.moveItems(items, before: toItem)
- }
- }
- */
-
-/*
- /**
-  Creates a diffable data source with the specified cell and row registration, and connects it to the specified table view.
-
-  To connect a diffable data source to a table view, you create the diffable data source using this initializer, passing in the table view you want to associate with that data source. You also pass in a cell registration, where each of your cells gets determine how to display your data in the UI.
-
-  ```swift
-  dataSource = TableViewDiffableDataSource<Section, Item>(tableView: tableView, cellRegistration: cellRegistration, rowRegistration: rowRegistration)
-  ```
-
-  - Parameters:
-     - tableView: The initialized table view object to connect to the diffable data source.
-     - cellRegistration: A rell registration which returns each of the cells for the table view from the data the diffable data source provides.
-     - rowRegistration: A row registration which returns each of the row view for the table view from the data the diffable data source provides.
-  */
- public convenience init<I: NSTableCellView, R: NSTableRowView>(tableView: NSTableView, cellRegistration: NSTableView.CellRegistration<I, Item>, rowRegistration: NSTableView.RowRegistration<R, Item>) {
-     self.init(tableView: tableView, cellProvider:  {
-         _tableView, column, row, element in
-         return _tableView.makeCellView(using: cellRegistration, forColumn: column, row: row, element: element)!
-     })
-     self.applyRowViewRegistration(rowRegistration)
- }
-
- /**
-  Creates a diffable data source with the specified cell and section header view registration, and connects it to the specified table view.
-
-  To connect a diffable data source to a table view, you create the diffable data source using this initializer, passing in the table view you want to associate with that data source. You also pass in a cell registration, where each of your cells gets determine how to display your data in the UI.
-
-  ```swift
-  dataSource = TableViewDiffableDataSource<Section, Element>(tableView: tableView, cellRegistration: cellRegistration, sectionHeaderRegistration: sectionHeaderRegistration)
-  ```
-
-  - Parameters:
-     - tableView: The initialized table view object to connect to the diffable data source.
-     - cellRegistration: A rell registration which returns each of the cells for the table view from the data the diffable data source provides.
-     - sectionHeaderRegistration: A section header view registration which returns each of the section header view for the table view from the data the diffable data source provides.
-  */
- public convenience init<I: NSTableCellView, H: NSView>(tableView: NSTableView, cellRegistration: NSTableView.CellRegistration<I, Item>, sectionHeaderRegistration: NSTableView.SectionHeaderRegistration<H, Section>) {
-     self.init(tableView: tableView, cellProvider:  {
-         _tableView, column, row, element in
-         return _tableView.makeCellView(using: cellRegistration, forColumn: column, row: row, element: element)!
-     })
-     self.applyNSTableSectionHeaderViewRegistration(sectionHeaderRegistration)
- }
-
- /**
-  Creates a diffable data source with the specified cell,  section header view and row registration, and connects it to the specified table view.
-
-  To connect a diffable data source to a table view, you create the diffable data source using this initializer, passing in the table view you want to associate with that data source. You also pass in a cell registration, where each of your cells gets determine how to display your data in the UI.
-
-  ```swift
-  dataSource = TableViewDiffableDataSource<Section, Element>(tableView: tableView, cellRegistration: cellRegistration, sectionHeaderRegistration: sectionHeaderRegistration, rowRegistration: rowRegistration)
-  ```
-
-  - Parameters:
-     - tableView: The initialized table view object to connect to the diffable data source.
-     - cellRegistration: A rell registration which returns each of the cells for the table view from the data the diffable data source provides.
-     - sectionHeaderRegistration: A section header view registration which returns each of the section header view for the table view from the data the diffable data source provides.
-     - rowRegistration: A row registration which returns each of the row view for the table view from the data the diffable data source provides.
-  */
- public convenience init<I: NSTableCellView, H: NSView,  R: NSTableRowView>(tableView: NSTableView, cellRegistration: NSTableView.CellRegistration<I, Item>, sectionHeaderRegistration: NSTableView.SectionHeaderRegistration<H, Section>, rowRegistration: NSTableView.RowRegistration<R, Item>) {
-     self.init(tableView: tableView, cellProvider:  {
-         _tableView, column, row, element in
-         return _tableView.makeCellView(using: cellRegistration, forColumn: column, row: row, element: element)!
-     })
-     self.applyNSTableSectionHeaderViewRegistration(sectionHeaderRegistration)
-     self.applyRowViewRegistration(rowRegistration)
- }
-
- /**
-  Creates a diffable data source with the specified cell and row registrations, and connects it to the specified table view.
-
-  To connect a diffable data source to a table view, you create the diffable data source using this initializer, passing in the table view you want to associate with that data source. You also pass in a cell registration, where each of your cells gets determine how to display your data in the UI.
-
-  ```swift
-  dataSource = TableViewDiffableDataSource<Section, Element>(tableView: tableView, cellRegistrations: cellRegistrations)
-  ```
-
-  - Parameters:
-     - tableView: The initialized table view object to connect to the diffable data source.
-     - cellRegistrations: Cell registratiosn which returns each of the cells for the table view from the data the diffable data source provides.
-     - rowRegistration: A row registration which returns each of the row view for the table view from the data the diffable data source provides.
-  */
- public convenience init<R: NSTableRowView>(tableView: NSTableView, cellRegistrations: [NSTableViewCellRegistration], rowRegistration: NSTableView.RowRegistration<R, Item>) {
-     self.init(tableView: tableView, cellProvider:  {
-         _tableView, column, row, element in
-         if let cellRegistration = cellRegistrations.first(where: {$0.columnIdentifiers?.contains(column.identifier) == true}) ?? cellRegistrations.first(where: {$0.columnIdentifiers == nil }) {
-             return (cellRegistration as! _NSTableViewCellRegistration).makeView(tableView, column, row, element)!
-         }
-         return NSTableCellView()
-     })
- }
-
- /**
-  Creates a diffable data source with the specified cell and section header viewregistrations, and connects it to the specified table view.
-
-  To connect a diffable data source to a table view, you create the diffable data source using this initializer, passing in the table view you want to associate with that data source. You also pass in a cell registration, where each of your cells gets determine how to display your data in the UI.
-
-  ```swift
-  dataSource = TableViewDiffableDataSource<Section, Element>(tableView: tableView, cellRegistrations: cellRegistrations)
-  ```
-
-  - Parameters:
-     - tableView: The initialized table view object to connect to the diffable data source.
-     - cellRegistrations: Cell registratiosn which returns each of the cells for the table view from the data the diffable data source provides.
-     - sectionHeaderRegistration: A section header view registration which returns each of the section header view for the table view from the data the diffable data source provides.
-  */
- public convenience init<H: NSView>(tableView: NSTableView, cellRegistrations: [NSTableViewCellRegistration], sectionHeaderRegistration: NSTableView.SectionHeaderRegistration<H, Section>) {
-     self.init(tableView: tableView, cellProvider:  {
-         _tableView, column, row, element in
-         if let cellRegistration = cellRegistrations.first(where: {$0.columnIdentifiers?.contains(column.identifier) == true}) ?? cellRegistrations.first(where: {$0.columnIdentifiers == nil }) {
-             return (cellRegistration as! _NSTableViewCellRegistration).makeView(tableView, column, row, element)!
-         }
-         return NSTableCellView()
-     })
- }
-
- /**
-  Creates a diffable data source with the specified cell, section header view and row registrations, and connects it to the specified table view.
-
-  To connect a diffable data source to a table view, you create the diffable data source using this initializer, passing in the table view you want to associate with that data source. You also pass in a cell registration, where each of your cells gets determine how to display your data in the UI.
-
-  ```swift
-  dataSource = TableViewDiffableDataSource<Section, Element>(tableView: tableView, cellRegistrations: cellRegistrations)
-  ```
-
-  - Parameters:
-     - tableView: The initialized table view object to connect to the diffable data source.
-     - cellRegistrations: Cell registratiosn which returns each of the cells for the table view from the data the diffable data source provides.
-     - sectionHeaderRegistration: A section header view registration which returns each of the section header view for the table view from the data the diffable data source provides.
-     - rowRegistration: A row registration which returns each of the row view for the table view from the data the diffable data source provides.
-  */
- public convenience init<H: NSView, R: NSTableRowView>(tableView: NSTableView, cellRegistrations: [NSTableViewCellRegistration], sectionHeaderRegistration: NSTableView.SectionHeaderRegistration<H, Section>, rowRegistration: NSTableView.RowRegistration<R, Item>) {
-     self.init(tableView: tableView, cellProvider:  {
-         _tableView, column, row, element in
-         if let cellRegistration = cellRegistrations.first(where: {$0.columnIdentifiers?.contains(column.identifier) == true}) ?? cellRegistrations.first(where: {$0.columnIdentifiers == nil }) {
-             return (cellRegistration as! _NSTableViewCellRegistration).makeView(tableView, column, row, element)!
-         }
-         return NSTableCellView()
-     })
- }
- */

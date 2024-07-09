@@ -46,7 +46,7 @@ import QuickLookUI
 open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, Element: Identifiable & Hashable>: NSObject, NSCollectionViewDataSource {
     weak var collectionView: NSCollectionView!
     var dataSource: NSCollectionViewDiffableDataSource<Section.ID, Element.ID>!
-    var delegateBridge: DelegateBridge!
+    var delegateBridge: Delegate!
     var currentSnapshot = NSDiffableDataSourceSnapshot<Section, Element>()
     var previousDisplayingItems = [Element.ID]()
     var magnifyGestureRecognizer: NSMagnificationGestureRecognizer?
@@ -335,7 +335,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         let internalSnapshot = snapshot.toIdentifiableSnapshot()
         currentSnapshot = snapshot
         dataSource.apply(internalSnapshot, option, completion: completion)
-        updateEmptyView(snapshot, previousIsEmpty: previousIsEmpty)
+        updateEmptyView(previousIsEmpty: previousIsEmpty)
     }
 
     // MARK: - Init
@@ -372,7 +372,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
             return self.supplementaryViewProvider?(collectionView, itemKind, indePath)
         }
 
-        delegateBridge = DelegateBridge(self)
+        delegateBridge = Delegate(self)
         collectionView.isQuicklookPreviewable = Element.self is QuicklookPreviewable.Type
         collectionView.registerForDraggedTypes([.itemID, .fileURL, .tiff, .png, .string])
         
@@ -618,7 +618,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         finalSnapshot.deleteItems(elements)
         return DiffableDataSourceTransaction(initial: currentSnapshot, final: finalSnapshot)
     }
-
+    
     func movingTransaction(at indexPaths: [IndexPath], to toIndexPath: IndexPath) -> DiffableDataSourceTransaction<Section, Element>? {
         var newSnapshot = snapshot()
         let newItems = indexPaths.compactMap { element(for: $0) }
@@ -698,9 +698,10 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         didSet {
             guard oldValue != emptyView else { return }
             oldValue?.removeFromSuperview()
+            scrollViewContentViewObservation = nil
             if emptyView != nil {
                 emptyContentConfiguration = nil
-                updateEmptyView(snapshot())
+                updateEmptyView()
             }
         }
     }
@@ -710,53 +711,56 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
      
      When using this property, ``emptyView`` is set to `nil`.
      */
-    open var emptyContentConfiguration: NSContentConfiguration? = nil {
-        didSet {
-            if let configuration = emptyContentConfiguration {
-                emptyView = nil
+    open var emptyContentConfiguration: NSContentConfiguration? {
+        get { emptyContentView?.contentConfiguration }
+        set {
+            if let configuration = newValue {
                 if let emptyContentView = self.emptyContentView {
                     emptyContentView.contentConfiguration = configuration
                 } else {
                     emptyContentView = .init(configuration: configuration)
                 }
-                updateEmptyView(snapshot())
+                emptyView = nil
+                updateEmptyView()
             } else {
-                emptyContentView?.removeFromSuperview()
+                scrollViewContentViewObservation = nil
                 emptyContentView = nil
             }
         }
     }
     
+    var emptyContentView: ContentConfigurationView?
+    
     /**
      The handler that gets called when the data source switches between an empty and non-empty snapshot or viceversa.
 
-     You can use this handler e.g. if you want to update your empty view or content configuration.
-     
+     You can use this handler e.g. if you want to update your empty content configuration or view.
+
      - Parameter isEmpty: A Boolean value indicating whether the current snapshot is empty.
      */
     open var emptyHandler: ((_ isEmpty: Bool)->())? {
         didSet {
-            emptyHandler?(snapshot().isEmpty)
+            emptyHandler?(currentSnapshot.isEmpty)
         }
     }
     
-    var emptyContentView: ContentConfigurationView?
+    var scrollViewContentViewObservation: KeyValueObservation?
     
-     func updateEmptyView(_ snapshot: NSDiffableDataSourceSnapshot<Section, Element>, previousIsEmpty: Bool? = nil) {
-         if !snapshot.isEmpty {
-             emptyView?.removeFromSuperview()
-             emptyContentView?.removeFromSuperview()
-         } else if let emptyView = self.emptyView, emptyView.superview != collectionView {
-             collectionView?.addSubview(withConstraint: emptyView)
-         } else if let emptyContentView = self.emptyContentView, emptyContentView.superview != collectionView {
-             collectionView?.addSubview(withConstraint: emptyContentView)
-         }
-         if let emptyHandler = self.emptyHandler, let previousIsEmpty = previousIsEmpty {
-             let isEmpty = snapshot.isEmpty
-             if previousIsEmpty != isEmpty {
-                 emptyHandler(isEmpty)
-             }
-         }
+    func updateEmptyView(previousIsEmpty: Bool? = nil) {
+        if !currentSnapshot.isEmpty {
+            emptyView?.removeFromSuperview()
+            emptyContentView?.removeFromSuperview()
+            scrollViewContentViewObservation = nil
+        } else if let emptyView = self.emptyView, emptyView.superview != collectionView {
+            collectionView?.addSubview(withConstraint: emptyView)
+        } else if let emptyContentView = self.emptyContentView, emptyContentView.superview != collectionView {
+            collectionView?.addSubview(withConstraint: emptyContentView)
+        }
+        if let emptyHandler = self.emptyHandler, let previousIsEmpty = previousIsEmpty {
+            if previousIsEmpty != currentSnapshot.isEmpty {
+                emptyHandler(currentSnapshot.isEmpty)
+            }
+        }
      }
 
     // MARK: - Handlers
@@ -848,8 +852,11 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
     /// The handlers highlighting elements.
     open var highlightHandlers = HighlightHandlers()
 
-    /// The handlers for dropping files inside the collection view and elements outside the collection view.
+    /// The handlers for dragging pasteboard items inside the collection view.
     public var droppingHandlers = DroppingHandlers()
+    
+    /// The handlers for dragging elements outside the collection view.
+    public var draggingHandlers = DraggingHandlers()
 
     /// Handlers for prefetching elements.
     public struct PrefetchHandlers {
@@ -1001,68 +1008,31 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
             isHovering != nil || didEndHovering != nil
         }
     }
-
-    /// Handlers dropping files inside the collection view and elements outside the collection view.
-    public struct DroppingHandlers {
-        
-        /// The handlers for dragging elements outside the collection view.
-        public struct OutsideHandlers {
-            /// The strings for the specified elements to write to the pasteboard.
-            public var string: ((_ element: Element) -> String?)?
-            /// The urls for the specified elements to write to the pasteboard.
-            public var url: ((_ element: Element) -> URL?)?
-            /// The images for the specified elements to write to the pasteboard.
-            public var image: ((_ element: Element) -> NSImage?)?
-            /// The colors for the specified elements to write to the pasteboard.
-            public var color: ((_ element: Element) -> NSColor?)?
-            /// The pasteboard items for the specified elements to write to the pasteboard.
-            public var pasteboardItem: ((_ element: Element) -> [NSPasteboardItem])?
-
-            /// The handler that determines whenever elements can be dragged outside the collection view.
-            public var canDrag: (([Element]) -> Bool)?
-            /// The handler that gets called when the handler will drag elements outside the collection view.
-            public var willDrag: (() -> ())?
-            /// The handler that gets called when the handler did drag elements outside the collection view.
-            public var didDrag: (() -> ())?
-        }
-
-        /// The handlers for dragging pasteboard items inside the collection view.
-        public struct InsideHandlers {
-            /// The handler that specifies the elements for the strings in the pasteboard.
-            public var strings: ((_ strings: [String]) -> [Element])?
-            /// The handler that specifies the elements for the file urls in the pasteboard.
-            public var fileURLs: ((_ fileURLs: [URL]) -> [Element])?
-            /// The handler that specifies the elements for the urls in the pasteboard.
-            public var urls: ((_ urls: [URL]) -> [Element])?
-            /// The handler that specifies the elements for the images in the pasteboard.
-            public var images: ((_ images: [NSImage]) -> [Element])?
-            /// The handler that specifies the elements for the colors in the pasteboard.
-            public var colors: ((_ colors: [NSColor]) -> [Element])?
-            /// The handler that specifies the elements for the pasteboard items in the pasteboard.
-            public var pasteboardItems: ((_ items: [NSPasteboardItem]) -> [Element])?
-            
-            /// The handler that determines whenever pasteboard elements can be dragged inside the collection view.
-            public var canDrag: (([PasteboardContent]) -> Bool)?
-            /// The handler that gets called when the handler will drag elements inside the collection view.
-            public var willDrag: ((_ transaction: DiffableDataSourceTransaction<Section, Element>) -> ())?
-            /// The handler that gets called when the handler did drag elements inside the collection view.
-            public var didDrag: ((_ transaction: DiffableDataSourceTransaction<Section, Element>) -> ())?
-            var needsTransaction: Bool {
-                willDrag != nil || didDrag != nil
-            }
-        }
-
-        /// The handlers for dragging pasteboard items inside the collection view.
-        public var inside = InsideHandlers()
-
-        /// The handlers for dragging elements outside the collection view.
-        public var outside = OutsideHandlers()
-
-        /// The handler that determines the pasteboard value of an element when dragged outside the collection view.
-        public var pasteboardValue: ((_ element: Element) -> PasteboardContent)?
-        
-        /// The handler that determines the image when dragging elements.
+    
+    /// Handlers for dragging elements outside the collection view.
+    public struct DraggingHandlers {
+        /// The handler that determines whenever elements can be dragged outside the collection view.
+        public var canDrag: ((_ elements: [Element])->(Bool))?
+        /// The handler that gets called when the handler did drag elements outside the collection view.
+        public var didDrag: ((_ elements: [Element]) -> ())?
+        /// The handler that provides the pasteboard content for an element that can be dragged outside the collection view.
+        public var pasteboardContent: ((_ element: Element)->([PasteboardContent]))?
+        /// The handler that determines the image when dragging elements outside the collection view.
         public var draggingImage: ((_ elements: [Element], _ event: NSEvent, _ screenLocation: CGPoint) -> NSImage?)?
+    }
+    
+    /// Handlers for dragging pasteboard items inside the collection view.
+    public struct DroppingHandlers {
+        /// The handler that determines whenever pasteboard elements can be dragged inside the collection view.
+        public var canDrop: ((_ contents: [PasteboardContent]) -> ([Element]))?
+        /// The handler that gets called when the handler will drag pasteboard items inside the collection view.
+        public var willDrop: ((_ transaction: DiffableDataSourceTransaction<Section, Element>) -> ())?
+        /// The handler that gets called when the handler did drag pasteboard items inside the collection view.
+        public var didDrop: ((_ transaction: DiffableDataSourceTransaction<Section, Element>) -> ())?
+        
+        var needsTransaction: Bool {
+            willDrop != nil || didDrop != nil
+        }
     }
 }
 
