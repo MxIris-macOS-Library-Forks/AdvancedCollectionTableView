@@ -48,6 +48,8 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
     var sectionRowIndexes: [Int] = []
     var hoveredRowObserver: KeyValueObservation?
     var delegateBridge: Delegate!
+    var keyDownMonitor: NSEvent.Monitor?
+
     
     /// The closure that configures and returns the table view’s row views from the diffable data source.
     open var rowViewProvider: RowProvider? {
@@ -224,10 +226,10 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
     
     func setupKeyDownMonitor() {
         if let canDelete = deletingHandlers.canDelete {
-            tableView.keyHandlers.keyDown = { [weak self] event in
-                guard let self = self, event.keyCode == 51, self.tableView.isFirstResponder else { return }
+            keyDownMonitor = NSEvent.localMonitor(for: .keyDown) { [weak self] event in
+                guard let self = self, event.keyCode == 51, self.tableView.isFirstResponder else { return event }
                 let itemsToDelete = canDelete(self.selectedItems)
-                guard !itemsToDelete.isEmpty else { return }
+                guard !itemsToDelete.isEmpty else { return event }
                 var section: Section? = nil
                 var selectionItem: Item? = nil
                 if let item = itemsToDelete.first {
@@ -240,9 +242,9 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
                 let transaction = self.deletingTransaction(itemsToDelete)
                 self.deletingHandlers.willDelete?(itemsToDelete, transaction)
                 QuicklookPanel.shared.close()
-                self.apply(transaction.finalSnapshot, .animated)
-                deletingHandlers.didDelete?(itemsToDelete, transaction)
-                if self.tableView.allowsEmptySelection == false, self.tableView.selectedRowIndexes.isEmpty {
+                self.apply(transaction.finalSnapshot, self.deletingHandlers.animates ? .animated : .withoutAnimation)
+                self.deletingHandlers.didDelete?(itemsToDelete, transaction)
+                if !self.tableView.allowsEmptySelection, self.tableView.selectedRowIndexes.isEmpty {
                     var selectionRow: Int? = nil
                     if let item = selectionItem, let row = self.row(for: item) {
                         selectionRow = row
@@ -255,6 +257,7 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
                         self.tableView.selectRowIndexes([row], byExtendingSelection: false)
                     }
                 }
+                return nil
             }
         } else {
             tableView.keyHandlers.keyDown = nil
@@ -283,9 +286,9 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
      The system interrupts any ongoing item animations and immediately reloads the table view’s content.
      
      - Parameters:
-     - snapshot: The snapshot that reflects the new state of the data in the table view.
-     - option: Option how to apply the snapshot to the table view. The default value is `animated`.
-     - completion: An optional completion handler which gets called after applying the snapshot.
+        - snapshot: The snapshot that reflects the new state of the data in the table view.
+        - option: Option how to apply the snapshot to the table view. The default value is `animated`.
+        - completion: An optional completion handler which gets called after applying the snapshot. The system calls this closure from the main queue.
      */
     open func apply(_ snapshot: NSDiffableDataSourceSnapshot<Section, Item>, _ option: NSDiffableDataSourceSnapshotApplyOption = .animated, completion: (() -> Void)? = nil) {
         var previousIsEmpty: Bool?
@@ -447,7 +450,7 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
             if let transaction = movingTransaction(at: dragingRowIndexes, to: row) {
                 let selectedItems = selectedItems
                 reorderingHandlers.willReorder?(transaction)
-                apply(transaction.finalSnapshot, .withoutAnimation)
+                apply(transaction.finalSnapshot, reorderingHandlers.animates ? .animated :  .withoutAnimation)
                 selectItems(selectedItems)
                 reorderingHandlers.didReorder?(transaction)
                 return true
@@ -474,7 +477,7 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
                 droppingHandlers.willDrop?(transaction!)
             }
             let selectedItems = selectedItems
-            apply(snapshot, .animated)
+            apply(snapshot, droppingHandlers.animates ? .animated : .withoutAnimation)
             selectItems(selectedItems)
             droppingHandlers.didDrop?(transaction!)
             return true
@@ -483,6 +486,9 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
     }
     
     open func tableView(_: NSTableView, validateDrop draggingInfo: NSDraggingInfo, proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
+        if !dragingRowIndexes.isEmpty, dropOperation == .on {
+            return []
+        }
         if !dragingRowIndexes.isEmpty, dropOperation == .above {
             if row >= (sectionHeaderCellProvider != nil ? 1 : 0) {
                 return .move
@@ -929,6 +935,9 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
          ```
          */
         public var didReorder: ((DiffableDataSourceTransaction<Section, Item>) -> Void)?
+        
+        /// A Boolean value that indicates whether reordering items is animated.
+        public var animates: Bool = false
     }
 
     /**
@@ -970,6 +979,9 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
          ```
          */
         public var didDelete: ((_ items: [Item], _ transaction: DiffableDataSourceTransaction<Section, Item>) -> Void)?
+        
+        /// A Boolean value that indicates whether deleting items is animated.
+        public var animates: Bool = true
     }
 
     /// Handlers for hovering items with the mouse.
@@ -1033,6 +1045,8 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         public var willDrop: ((_ transaction: DiffableDataSourceTransaction<Section, Item>) -> ())?
         /// The handler that gets called when the handler did drag pasteboard inside the table view.
         public var didDrop: ((_ transaction: DiffableDataSourceTransaction<Section, Item>) -> ())?
+        /// A Boolean value that indicates whether dropping items is animated.
+        public var animates: Bool = true
         
         var needsTransaction: Bool {
             willDrop != nil || didDrop != nil

@@ -81,104 +81,96 @@ public struct NSItemContentConfiguration: Hashable, NSContentConfiguration {
     /**
      The primary text.
 
-     If you configurate the value with a non-`nil` value, ``attributedText`` will be `nil`.
+     If you configurate the value with a non-`nil` value, ``attributedText`` is set to `nil`.
      */
     public var text: String? {
         didSet {
-            if text != nil {
-                attributedText = nil
-            }
+            guard text != nil else { return }
+            attributedText = nil
         }
     }
 
     /**
      An attributed variant of the primary text.
 
-     If you configurate the value with a non-`nil` value, ``text`` will be `nil`.
+     If you configurate the value with a non-`nil` value, ``text`` is set to `nil`.
      */
     public var attributedText: AttributedString? {
         didSet {
-            if attributedText != nil {
-                text = nil
-            }
+            guard attributedText != nil else { return }
+            text = nil
         }
     }
 
     /**
      The primary placeholder text.
 
-     If you configurate the value with a non-`nil` value, ``attributedPlaceholderText`` will be `nil`.
+     If you configurate the value with a non-`nil` value, ``attributedPlaceholderText`` is set to `nil`.
      */
     public var placeholderText: String? {
         didSet {
-            if placeholderText != nil {
-                attributedPlaceholderText = nil
-            }
+            guard placeholderText != nil else { return }
+            attributedPlaceholderText = nil
         }
     }
 
     /**
      An attributed variant of the primary placeholder text.
 
-     If you configurate the value with a non-`nil` value, ``placeholderText`` will be `nil`.
+     If you configurate the value with a non-`nil` value, ``placeholderText`` is set to `nil`.
      */
     public var attributedPlaceholderText: AttributedString? {
         didSet {
-            if attributedPlaceholderText != nil {
-                placeholderText = nil
-            }
+            guard attributedPlaceholderText != nil else { return }
+            placeholderText = nil
         }
     }
 
     /**
      The secondary text.
 
-     If you configurate the value with a non-`nil` value, ``secondaryAttributedText`` will be `nil`.
+     If you configurate the value with a non-`nil` value, ``secondaryAttributedText`` is set to `nil`.
      */
     public var secondaryText: String? {
         didSet {
-            if secondaryText != nil {
-                secondaryAttributedText = nil
-            }
+            guard secondaryText != nil else { return }
+            secondaryAttributedText = nil
         }
     }
 
     /**
      An attributed variant of the secondary text.
 
-     If you configurate the value with a non-`nil` value, ``secondaryText`` will be `nil`.
+     If you configurate the value with a non-`nil` value, ``secondaryText`` is set to `nil`.
      */
     public var secondaryAttributedText: AttributedString? {
         didSet {
-            if secondaryAttributedText != nil {
-                secondaryText = nil
-            }
+            guard secondaryAttributedText != nil else { return }
+            secondaryText = nil
         }
     }
 
     /**
      The secondary placeholder text.
 
-     If you configurate the value with a non-`nil` value, ``secondaryAttributedPlaceholderText`` will be `nil`.
+     If you configurate the value with a non-`nil` value, ``secondaryAttributedPlaceholderText`` is set to `nil`.
      */
     public var secondaryPlaceholderText: String? {
         didSet {
-            if secondaryPlaceholderText != nil {
-                secondaryAttributedPlaceholderText = nil
-            }
+            guard secondaryPlaceholderText != nil else { return }
+            secondaryAttributedPlaceholderText = nil
         }
     }
 
     /**
      An attributed variant of the secondary placeholder text.
 
-     If you configurate the value with a non-`nil` value, ``secondaryPlaceholderText`` will be `nil`.
+     If you configurate the value with a non-`nil` value, ``secondaryPlaceholderText`` is set to `nil`.
      */
     public var secondaryAttributedPlaceholderText: AttributedString? {
         didSet {
-            if secondaryAttributedPlaceholderText != nil {
-                secondaryPlaceholderText = nil
-            }
+            guard secondaryAttributedPlaceholderText != nil else { return }
+            secondaryPlaceholderText = nil
         }
     }
 
@@ -264,22 +256,7 @@ public struct NSItemContentConfiguration: Hashable, NSContentConfiguration {
     public func updated(for state: NSConfigurationState) -> NSItemContentConfiguration {
         var configuration = self
         if let state = state as? ConfigurationState {
-            if state.isSelected {
-                configuration.contentProperties.state.borderWidth = configuration.contentProperties.borderWidth != 0.0 ? configuration.contentProperties.borderWidth : 3.0
-                let isInvisible = configuration.contentProperties.shadow.color == nil || configuration.contentProperties.shadow.color?.alphaComponent == 0.0 || configuration.contentProperties.shadow.opacity == 0.0
-
-                if state.isEmphasized {
-                    configuration.contentProperties.state.borderColor = .controlAccentColor
-                    configuration.contentProperties.state.shadowColor = isInvisible ? nil : .controlAccentColor
-                } else {
-                    configuration.contentProperties.state.borderColor = .controlAccentColor.withAlphaComponent(0.7)
-                    configuration.contentProperties.state.shadowColor = isInvisible ? nil : .controlAccentColor.withAlphaComponent(0.7)
-                }
-            } else {
-                configuration.contentProperties.state.borderColor = nil
-                configuration.contentProperties.state.shadowColor = nil
-                configuration.contentProperties.state.borderWidth = nil
-            }
+            configuration.contentProperties.state = .init(isSelected: state.isSelected, isEmphasized: state.isEmphasized)
         }
         return configuration
     }

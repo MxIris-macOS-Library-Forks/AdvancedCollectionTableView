@@ -53,24 +53,14 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
         }
     }
 
-    lazy var textField = ListTextField(properties: appliedConfiguration.textProperties)
-    lazy var secondaryTextField = ListTextField(properties: appliedConfiguration.secondaryTextProperties)
+    lazy var textField = ListItemTextField(properties: appliedConfiguration.textProperties)
+    lazy var secondaryTextField = ListItemTextField(properties: appliedConfiguration.secondaryTextProperties)
     lazy var imageView = ListImageView(properties: appliedConfiguration.imageProperties)
     var badgeView: BadgeView?
 
-    lazy var textStackView: NSStackView = {
-        var stackView = NSStackView(views: [textField, secondaryTextField])
-        stackView.orientation = .vertical
-        stackView.alignment = .leading
-        return stackView
-    }()
+    lazy var textStackView = NSStackView(views: [textField, secondaryTextField]).orientation(.vertical).alignment(.leading)
 
-    lazy var stackView: NSStackView = {
-        var stackView = NSStackView(views: [imageView, textStackView])
-        stackView.orientation = .horizontal
-        stackView.distribution = .fill
-        return stackView
-    }()
+    lazy var stackView = NSStackView(views: [imageView, textStackView]).orientation(.horizontal).distribution(.fill)
 
     var isEditing: Bool = false {
         didSet {
@@ -103,14 +93,14 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
         badgeView?.verticalConstraint?.activate(false)
 
         textField.isEnabled = appliedConfiguration.state.isEnabled != false
-        secondaryTextField.isEnabled = appliedConfiguration.state.isEnabled != false
-        textField.updateText(appliedConfiguration.text, appliedConfiguration.attributedText, appliedConfiguration.placeholderText, appliedConfiguration.attributedPlaceholderText)
-        secondaryTextField.updateText(appliedConfiguration.secondaryText, appliedConfiguration.secondaryAttributedText, appliedConfiguration.secondaryPlaceholderText, appliedConfiguration.secondaryAttributedPlaceholderText)
-        imageView.image = appliedConfiguration.image
-
-        imageView.properties = appliedConfiguration.imageProperties
         textField.properties = appliedConfiguration.textProperties
+        textField.updateText(appliedConfiguration.text, appliedConfiguration.attributedText, appliedConfiguration.placeholderText, appliedConfiguration.attributedPlaceholderText)
+        secondaryTextField.isEnabled = appliedConfiguration.state.isEnabled != false
         secondaryTextField.properties = appliedConfiguration.secondaryTextProperties
+        secondaryTextField.updateText(appliedConfiguration.secondaryText, appliedConfiguration.secondaryAttributedText, appliedConfiguration.secondaryPlaceholderText, appliedConfiguration.secondaryAttributedPlaceholderText)
+        
+        imageView.image = appliedConfiguration.image
+        imageView.properties = appliedConfiguration.imageProperties
 
         textStackView.spacing = appliedConfiguration.textToSecondaryTextPadding
         stackView.spacing = appliedConfiguration.imageToTextPadding

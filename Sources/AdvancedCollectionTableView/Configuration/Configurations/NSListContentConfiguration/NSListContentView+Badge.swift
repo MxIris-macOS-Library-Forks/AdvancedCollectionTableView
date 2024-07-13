@@ -26,7 +26,7 @@ extension NSListContentView {
             border.width = properties.borderWidth
             cornerRadius = properties.cornerRadius
             backgroundColor = properties._resolvedBackgroundColor
-            configurate(using: properties.shadow, type: .outer)
+            outerShadow = properties.shadow
             textField.font = properties.font
             textField.textColor = properties._resolvedColor
             imageView.image = properties.image
@@ -74,12 +74,7 @@ extension NSListContentView {
 
         let textField = NSTextField(wrappingLabelWithString: "")
         lazy var imageView = BadgeImageView(properties: properties.imageProperties)
-        lazy var stackView: NSStackView = {
-            let stackView = NSStackView(views: [imageView, textField])
-            stackView.orientation = .horizontal
-            stackView.alignment = .firstBaseline
-            return stackView
-        }()
+        lazy var stackView = NSStackView(views: [imageView, textField]).orientation(.horizontal).alignment(.firstBaseline)
 
         @available(*, unavailable)
         required init?(coder _: NSCoder) {

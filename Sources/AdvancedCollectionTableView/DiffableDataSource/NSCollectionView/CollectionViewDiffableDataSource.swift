@@ -225,24 +225,26 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
 
     func observeKeyDown() {
         if let canDelete = deletingHandlers.canDelete {
-            /*
-            collectionView.keyHandlers.keyDown = { [weak self] event in
-                guard let self = self, event.keyCode == 51 else { return }
+            keyDownMonitor = NSEvent.localMonitor(for: .keyDown) { [weak self] event in
+                guard let self = self, event.keyCode == 51, self.collectionView.isFirstResponder else { return event }
                 let elementsToDelete = canDelete(self.selectedElements)
-                guard let element = elementsToDelete.first  else { return }
+                guard !elementsToDelete.isEmpty else { return event }
                 var section: Section? = nil
                 var selectionElement: Element? = nil
-                if let indexPath = self.indexPath(for: element), indexPath.item > 0,  let element = self.element(for: IndexPath(item: indexPath.item - 1, section: indexPath.section)), !elementsToDelete.contains(element) {
-                    selectionElement = element
-                } else {
-                    section = self.section(for: element)
+                if let element = elementsToDelete.first {
+                    if let indexPath = self.indexPath(for: element), indexPath.item > 0,  let element = self.element(for: IndexPath(item: indexPath.item - 1, section: indexPath.section)), !elementsToDelete.contains(element) {
+                        selectionElement = element
+                    } else {
+                        section = self.section(for: element)
+                    }
                 }
                 let transaction = self.deletionTransaction(elementsToDelete)
                 self.deletingHandlers.willDelete?(elementsToDelete, transaction)
                 QuicklookPanel.shared.close()
-                self.apply(transaction.finalSnapshot, .animated)
+                self.apply(transaction.finalSnapshot, self.deletingHandlers.animates ? .animated : .withoutAnimation)
                 self.deletingHandlers.didDelete?(elementsToDelete, transaction)
-                if self.collectionView.allowsEmptySelection == false, self.collectionView.selectionIndexPaths.isEmpty {
+                
+                if !self.collectionView.allowsEmptySelection, self.collectionView.selectionIndexPaths.isEmpty {
                     var selectionIndexPath: IndexPath?
                     if let element = selectionElement, let indexPath = self.indexPath(for: element) {
                         selectionIndexPath = indexPath
@@ -255,46 +257,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
                         self.collectionView.selectItems(at: [indexPath], scrollPosition: [])
                     }
                 }
-            }
-            */
-            
-            keyDownMonitor = NSEvent.localMonitor(for: .keyDown) { [weak self] event in
-                guard let self = self, event.keyCode == 51, self.collectionView.isFirstResponder else { return event }
-                let elementsToDelete = canDelete(self.selectedElements)
-                var section: Section? = nil
-                var selectionElement: Element? = nil
-                if let element = elementsToDelete.first {
-                    if let indexPath = indexPath(for: element), indexPath.item > 0,  let element = self.element(for: IndexPath(item: indexPath.item - 1, section: indexPath.section)), !elementsToDelete.contains(element) {
-                        selectionElement = element
-                    } else {
-                        section = self.section(for: element)
-                    }
-                }
-                if elementsToDelete.isEmpty == false {
-                    let transaction = self.deletionTransaction(elementsToDelete)
-                    self.deletingHandlers.willDelete?(elementsToDelete, transaction)
-                    if QuicklookPanel.shared.isVisible {
-                        QuicklookPanel.shared.close()
-                    }
-                    self.apply(transaction.finalSnapshot, .animated)
-                    deletingHandlers.didDelete?(elementsToDelete, transaction)
-                    
-                    if collectionView.allowsEmptySelection == false, collectionView.selectionIndexPaths.isEmpty {
-                        var selectionIndexPath: IndexPath?
-                        if let element = selectionElement, let indexPath = indexPath(for: element) {
-                            selectionIndexPath = indexPath
-                        } else if let section = section, let element = elements(for: section).first, let indexPath = indexPath(for: element) {
-                            selectionIndexPath = indexPath
-                        } else if let item = currentSnapshot.itemIdentifiers.first, let indexPath = indexPath(for: item) {
-                            selectionIndexPath = indexPath
-                        }
-                        if let indexPath = selectionIndexPath {
-                            collectionView.selectItems(at: [indexPath], scrollPosition: [])
-                        }
-                    }
-                    return nil
-                }
-                return event
+                return nil
             }
         } else {
             keyDownMonitor = nil
@@ -325,7 +288,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
      - Parameters:
         - snapshot: The snapshot that reflects the new state of the data in the collection view.
         - option: Option how to apply the snapshot to the collection view. The default value is `animated`.
-        - completion: An optional completion handler which gets called after applying the snapshot.
+        - completion: An optional completion handler which gets called after applying the snapshot. The system calls this closure from the main queue.
      */
     open func apply(_ snapshot: NSDiffableDataSourceSnapshot<Section, Element>, _ option: NSDiffableDataSourceSnapshotApplyOption = .animated, completion: (() -> Void)? = nil) {
         var previousIsEmpty: Bool?
@@ -605,12 +568,6 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
     func elements(for sections: [Section]) -> [Element] {
         let currentSnapshot = currentSnapshot
         return sections.flatMap { currentSnapshot.itemIdentifiers(inSection: $0) }
-    }
-
-    func removeItems(_ elements: [Element]) {
-        var snapshot = snapshot()
-        snapshot.deleteItems(elements)
-        apply(snapshot, .animated)
     }
 
     func deletionTransaction(_ elements: [Element]) -> DiffableDataSourceTransaction<Section, Element> {
@@ -921,6 +878,9 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
          ```
          */
         public var didDelete: ((_ elements: [Element], _ transaction: DiffableDataSourceTransaction<Section, Element>) -> Void)?
+        
+        /// A Boolean value that indicates whether deleting elements is animated.
+        public var animates: Bool = true
     }
 
     /**
@@ -962,6 +922,9 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
          ```
          */
         public var didReorder: ((DiffableDataSourceTransaction<Section, Element>) -> Void)?
+        
+        /// A Boolean value that indicates whether reordering elements is animated.
+        public var animates: Bool = true
     }
 
     /// Handlers for the highlight state of elements.
@@ -1029,6 +992,8 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         public var willDrop: ((_ transaction: DiffableDataSourceTransaction<Section, Element>) -> ())?
         /// The handler that gets called when the handler did drag pasteboard items inside the collection view.
         public var didDrop: ((_ transaction: DiffableDataSourceTransaction<Section, Element>) -> ())?
+        /// A Boolean value that indicates whether dropping elements is animated.
+        public var animates: Bool = true
         
         var needsTransaction: Bool {
             willDrop != nil || didDrop != nil
@@ -1062,7 +1027,7 @@ extension CollectionViewDiffableDataSource where Element: QuicklookPreviewable {
         - elements: The elements to preview.
         - current: The element that starts the preview. The default value is `nil`.
      */
-    public func quicklookElements(_ elements: [Element], current: Element? = nil) where Element: QuicklookPreviewable {
+    public func quicklookElements(_ elements: [Element], current: Element? = nil) {
         let indexPaths = elements.compactMap { indexPath(for: $0) }.sorted()
         if let current = current, let currentIndexPath = indexPath(for: current) {
             collectionView.quicklookItems(at: indexPaths, current: currentIndexPath)

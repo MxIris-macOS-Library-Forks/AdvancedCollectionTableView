@@ -58,25 +58,16 @@ open class NSItemContentView: NSView, NSContentView, EdiitingContentView {
         return nil
     }
 
-    lazy var textField = ItemTextField(properties: appliedConfiguration.textProperties)
-    lazy var secondaryTextField = ItemTextField(properties: appliedConfiguration.secondaryTextProperties)
+    lazy var textField = ListItemTextField(properties: appliedConfiguration.textProperties)
+    lazy var secondaryTextField = ListItemTextField(properties: appliedConfiguration.secondaryTextProperties)
     lazy var contentView = ItemContentView(configuration: appliedConfiguration)
 
-    lazy var textStackView: NSStackView = {
-        let stackView = NSStackView(views: [textField, secondaryTextField])
-        stackView.orientation = .vertical
-        stackView.alignment = .leading
-        stackView.spacing = appliedConfiguration.textToSecondaryTextPadding
-        return stackView
-    }()
+    lazy var textStackView = NSStackView(views: [textField, secondaryTextField]).orientation(.vertical).alignment(.leading).spacing(appliedConfiguration.textToSecondaryTextPadding)
 
-    lazy var stackView: NSStackView = {
-        let stackView = NSStackView(views: [contentView, textStackView])
-        stackView.orientation = appliedConfiguration.contentPosition.orientation
-        stackView.alignment = appliedConfiguration.contentAlignment
-        stackView.spacing = appliedConfiguration.contentToTextPadding
-        return stackView
-    }()
+    lazy var stackView = NSStackView(views: [contentView, textStackView])
+        .orientation(appliedConfiguration.contentPosition.orientation)
+        .alignment(appliedConfiguration.contentAlignment)
+        .spacing(appliedConfiguration.contentToTextPadding)
 
     var stackviewConstraints: [NSLayoutConstraint] = []
 
@@ -95,12 +86,12 @@ open class NSItemContentView: NSView, NSContentView, EdiitingContentView {
     var isEditing: Bool = false {
         didSet {
             guard oldValue != isEditing else { return }
-            if let tableCellView = tableCellView, tableCellView.contentView == self {
+            if let collectionViewItem = collectionViewItem, collectionViewItem.view == self {
+                collectionViewItem.setNeedsAutomaticUpdateConfiguration()
+            } else if let tableCellView = tableCellView, tableCellView.contentView == self {
                 tableCellView.setNeedsAutomaticUpdateConfiguration()
             } else if let tableRowView = tableRowView, tableRowView.contentView == self {
                 tableRowView.setNeedsAutomaticUpdateConfiguration()
-            } else if let collectionViewItem = collectionViewItem, collectionViewItem.view == self {
-                collectionViewItem.setNeedsAutomaticUpdateConfiguration()
             }
         }
     }
@@ -125,7 +116,7 @@ open class NSItemContentView: NSView, NSContentView, EdiitingContentView {
         secondaryTextField.properties = appliedConfiguration.secondaryTextProperties
         secondaryTextField.updateText(appliedConfiguration.secondaryText, appliedConfiguration.secondaryAttributedText, appliedConfiguration.secondaryPlaceholderText, appliedConfiguration.secondaryAttributedPlaceholderText)
 
-        layer?.scale = appliedConfiguration.scaleTransform.point
+        scale = appliedConfiguration.scaleTransform.point
         contentView.configuration = appliedConfiguration
         textStackView.spacing = appliedConfiguration.textToSecondaryTextPadding
         stackView.spacing = appliedConfiguration.contentToTextPadding

@@ -45,12 +45,12 @@ public extension NSItemContentConfiguration {
 
         /// The background color.
         public var backgroundColor: NSColor? = .lightGray {
-            didSet { updateResolvedColors() }
+            didSet {  _resolvedBackgroundColor = resolvedBackgroundColor() }
         }
 
         /// The color transformer for resolving the background color.
         public var backgroundColorTransform: ColorTransformer? {
-            didSet { updateResolvedColors() }
+            didSet {  _resolvedBackgroundColor = resolvedBackgroundColor() }
         }
 
         /// Generates the resolved background color for the specified background color, using the background color and color transformer.
@@ -63,74 +63,55 @@ public extension NSItemContentConfiguration {
 
         /// The visual effect background of the content.
         public var visualEffect: VisualEffectConfiguration?
-
-        /// The border width.
-        public var borderWidth: CGFloat = 0.0 {
-            didSet { resolvedBorderWidth = state.borderWidth ?? borderWidth }
-        }
-
-        /// The border color.
-        public var borderColor: NSColor? {
-            didSet { updateResolvedColors() }
-        }
-
-        /// The color transformer for resolving the border color.
-        public var borderColorTransform: ColorTransformer? {
-            didSet { updateResolvedColors() }
-        }
-
-        /// Generates the resolved border color for the specified border color, using the border color and border color transformer.
-        public func resolvedBorderColor() -> NSColor? {
-            if let borderColor = borderColor {
-                return borderColorTransform?(borderColor) ?? borderColor
+        
+        /// The border of the content.
+        public var border: BorderConfiguration = .none() {
+            didSet { 
+                updateState()
             }
-            return nil
         }
-
-        struct State: Hashable {
-            var borderWidth: CGFloat?
-            var borderColor: NSColor?
-            var shadowColor: NSColor?
-        }
-
-        var state: State = .init() {
+        
+        var state = NSItemConfigurationState() {
             didSet {
-                resolvedBorderWidth = state.borderWidth ?? borderWidth
-                updateResolvedColors()
+                updateState()
             }
         }
-
-        var stateShadow: ShadowConfiguration {
-            guard let shadowColor = state.shadowColor else { return shadow }
-            var shadow = shadow
-            shadow.color = shadowColor
-            return shadow
+                
+        mutating func updateState() {
+            if state.isSelected {
+                resolvedBorder = border
+                resolvedBorder?.width = border.width > 3.0 ? border.width : 3.0
+                let isInvisible = shadow.color == nil || shadow.color?.alphaComponent == 0.0 || shadow.opacity == 0.0
+                if state.isEmphasized {
+                    resolvedBorder?.color = .controlAccentColor
+                    resolvedShadow = shadow
+                    resolvedShadow?.color = isInvisible ? shadow.resolvedColor() : .controlAccentColor
+                } else {
+                    resolvedBorder?.color = .controlAccentColor.withAlphaComponent(0.7)
+                    resolvedShadow?.color = isInvisible ? shadow.resolvedColor() : .controlAccentColor.withAlphaComponent(0.7)
+                }
+            } else {
+                resolvedBorder = nil
+                resolvedShadow = nil
+            }
         }
-
-        var resolvedBorderWidth: CGFloat = 0.0
 
         /// Properties for configuring the image.
         public var imageProperties: ImageProperties = .init()
 
         /// The shadow properties.
-        public var shadow: ShadowConfiguration = .black()
+        public var shadow: ShadowConfiguration = .black() {
+            didSet {
+                updateState()
+            }
+        }
         
         /// The text for the tooltip of the content.
         public var toolTip: String? = nil
 
-        /// Resets the  border width to 0 when the item state isSelected is false.
-        var needsBorderWidthReset: Bool = false
-        /// Resets the  border width to 0 when the item state isSelected is false.
-        var needsBorderColorReset: Bool = false
-        var _resolvedImageTintColor: NSColor?
-        var _resolvedBorderColor: NSColor?
         var _resolvedBackgroundColor: NSColor?
-        mutating func updateResolvedColors() {
-            //  imageSymbolConfiguration?.updateResolvedColors()
-            _resolvedImageTintColor = imageProperties.symbolConfiguration?.resolvedPrimaryColor() ?? imageProperties.resolvedTintColor()
-            _resolvedBorderColor = state.borderColor ?? resolvedBorderColor()
-            _resolvedBackgroundColor = resolvedBackgroundColor()
-        }
+        var resolvedBorder: BorderConfiguration? = nil
+        var resolvedShadow: ShadowConfiguration? = nil
 
         init() {}
     }
@@ -189,11 +170,15 @@ public extension NSItemContentConfiguration.ContentProperties {
         public var scaling: ImageScaling = .fit
 
         /// The tint color for an image that is a template or symbol image.
-        public var tintColor: NSColor?
+        public var tintColor: NSColor? {
+            didSet { _resolvedTintColor = resolvedTintColor() }
+        }
 
         /// The color transformer for resolving the image tint color.
-        public var tintColorTransform: ColorTransformer?
-
+        public var tintColorTransform: ColorTransformer? {
+            didSet { _resolvedTintColor = resolvedTintColor() }
+        }
+        
         /// Generates the resolved image tint color for the specified tint color, using the tint color and tint color transformer.
         public func resolvedTintColor() -> NSColor? {
             if let tintColor = tintColor {
@@ -201,5 +186,7 @@ public extension NSItemContentConfiguration.ContentProperties {
             }
             return nil
         }
+        
+        var _resolvedTintColor: NSColor?
     }
 }
