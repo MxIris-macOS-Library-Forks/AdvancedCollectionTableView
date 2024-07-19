@@ -24,9 +24,6 @@ public struct TextProperties {
     /// The technique for wrapping and truncating the text.
     public var lineBreakMode: NSLineBreakMode = .byWordWrapping
 
-    /// The number formatter of the text.
-    public var numberFormatter: NumberFormatter?
-
     /// A Boolean value that determines whether the text fields reduces the text’s font size to fit the title string into the text field’s bounding rectangle.
     public var adjustsFontSizeToFitWidth: Bool = false
 
@@ -56,16 +53,42 @@ public struct TextProperties {
      
      The property is only used, if `isEditable` is `true`.
      */
-    public var editingActionOnEnterKeyDown: NSTextField.EnterKeyAction = .endEditing
+    public var editingActionOnEnterKeyDown: EnterKeyAction = .endEditing
+    
+    /// The action to perform when the user presses the enter key while editing.
+    public enum EnterKeyAction: Int, Hashable {
+        /// No action.
+        case none
+        /// Ends editing the text.
+        case endEditing
+        
+        var action: NSTextField.EnterKeyAction {
+            .init(rawValue: rawValue)!
+        }
+    }
     
     /**
      The action to perform when the user presses the escape key while editing.
      
      The default value is `endEditingAndReset`.
      
-     The property is only used, if `isEditable` is `true.
+     The property is only used, if `isEditable` is `true`.
      */
-    public var editingActionOnEscapeKeyDown: NSTextField.EscapeKeyAction = .endEditingAndReset
+    public var editingActionOnEscapeKeyDown: EscapeKeyAction = .endEditingAndReset
+    
+    /// The action to perform when the user presses the escape key while editing.
+    public enum EscapeKeyAction: Int, Hashable {
+        /// No action.
+        case none
+        /// Ends editing the text.
+        case endEditing
+        /// Ends editing the text and resets it to the the state before editing.
+        case endEditingAndReset
+        
+        var action: NSTextField.EscapeKeyAction {
+            .init(rawValue: rawValue)!
+        }
+    }
     
     /**
      The handler that gets called when editing of the text ended.
@@ -77,19 +100,15 @@ public struct TextProperties {
     /**
      The handler that determines whether the edited string is valid.
 
-     It only gets called, if `isEditable` is true.
+     It only gets called, if `isEditable` is `true`.
      */
     public var stringValidation: ((String) -> (Bool))?
 
     /// The color of the text.
-    public var color: NSUIColor = .labelColor {
-        didSet { _resolvedTextColor = resolvedColor() }
-    }
+    public var color: NSUIColor = .labelColor
 
     /// The color transformer for resolving the text color.
-    public var colorTansform: ColorTransformer? {
-        didSet { _resolvedTextColor = resolvedColor() }
-    }
+    public var colorTansform: ColorTransformer?
 
     /// Generates the resolved text color, using the text color and color transformer.
     public func resolvedColor() -> NSUIColor {
@@ -98,8 +117,32 @@ public struct TextProperties {
     
     /// The tooltip of the text. If set to to an empty string, the text of the textfield is used.
     public var toolTip: String? = nil
-
-    var _resolvedTextColor: NSUIColor = .labelColor
+    
+    /// The bezel of the text field.
+    public var bezel: BezelType = .none
+    
+    /// The number formatter of the text.
+    public var numberFormatter: NumberFormatter?
+    
+    /// The text field bezel.
+    public enum BezelType: Int, Hashable {
+        /// Square bezel.
+        case square
+        /// Rounded bezel.
+        case rounded
+        /// No bezel.
+        case none
+        
+        var isBezeled: Bool {
+            self != .none
+        }
+        var type: NSTextField.BezelStyle {
+            switch self {
+            case .square: return .squareBezel
+            default: return .roundedBezel
+            }
+        }
+    }
 
     /// Initalizes a text configuration.
     init() {}
@@ -134,9 +177,7 @@ public struct TextProperties {
 
     /// A text configuration for a text that contains primary content.
     public static var primary: Self {
-        var properties = Self()
-        properties.maximumNumberOfLines = 1
-        return properties
+        return Self()
     }
 
     /// A text configuration for a text that contains secondary content.
@@ -228,6 +269,9 @@ extension TextProperties: Hashable {
         hasher.combine(minimumScaleFactor)
         hasher.combine(allowsDefaultTighteningForTruncation)
         hasher.combine(toolTip)
+        hasher.combine(editingActionOnEnterKeyDown)
+        hasher.combine(editingActionOnEscapeKeyDown)
+        hasher.combine(bezel)
     }
 }
 
@@ -235,7 +279,7 @@ extension Text {
     @ViewBuilder
     func configurate(using properties: TextProperties) -> some View {
         font(Font(properties.font))
-            .foregroundColor(Color(properties._resolvedTextColor))
+            .foregroundColor(Color(properties.resolvedColor()))
             .lineLimit(properties.maximumNumberOfLines == 0 ? nil : properties.maximumNumberOfLines)
             .multilineTextAlignment(properties.alignment.swiftUIMultiline)
             .frame(alignment: properties.alignment.swiftUI)
@@ -252,7 +296,7 @@ extension NSTextView {
     func configurate(using configuration: TextProperties) {
         textContainer?.maximumNumberOfLines = configuration.maximumNumberOfLines ?? 0
         textContainer?.lineBreakMode = configuration.lineBreakMode
-        textColor = configuration._resolvedTextColor
+        textColor = configuration.resolvedColor()
         font = configuration.font
         alignment = configuration.alignment
         isEditable = configuration.isEditable
@@ -270,7 +314,7 @@ extension NSTextField {
      */
     func configurate(using configuration: TextProperties) {
         maximumNumberOfLines = configuration.maximumNumberOfLines ?? 0
-        textColor = configuration._resolvedTextColor
+        textColor = configuration.resolvedColor()
         font = configuration.font
         alignment = configuration.alignment
         lineBreakMode = configuration.lineBreakMode
