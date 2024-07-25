@@ -41,11 +41,10 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
     func initialSetup() {
         clipsToBounds = false
         stackView.translatesAutoresizingMaskIntoConstraints = false
-        stackViewConstraints = addSubview(withConstraint: stackView)
-        addSubview(stackView)
+        badgeStackView.translatesAutoresizingMaskIntoConstraints = false
+        stackViewConstraints = addSubview(withConstraint: badgeStackView)
     }
 
-    var stackViewConstraints: [NSLayoutConstraint] = []
     var appliedConfiguration: NSListContentConfiguration {
         didSet {
             guard oldValue != appliedConfiguration else { return }
@@ -59,8 +58,9 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
     var badgeView: BadgeView?
 
     lazy var textStackView = NSStackView(views: [textField, secondaryTextField]).orientation(.vertical).alignment(.leading)
-
     lazy var stackView = NSStackView(views: [imageView, textStackView]).orientation(.horizontal).distribution(.fill)
+    var stackViewConstraints: [NSLayoutConstraint] = []
+    lazy var badgeStackView = NSStackView(views: [stackView]).orientation(.horizontal).distribution(.fill).alignment(.centerY)
 
     var isEditing: Bool = false {
         didSet {
@@ -118,6 +118,8 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
         stackViewConstraints.constant(appliedConfiguration.margins)
 
         if appliedConfiguration.hasBadge, appliedConfiguration.imageProperties.position.orientation == .horizontal, let badge = appliedConfiguration.badge {
+            badgeStackView.spacing = appliedConfiguration.textToBadgePadding
+            badgeStackView.alignment = badge.alignment.alignment
             if badgeView == nil {
                 badgeView = BadgeView(properties: badge)
             }
@@ -125,19 +127,15 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
             badgeView.properties = badge
             if badge.position == .leading, stackView.arrangedSubviews.first != badgeView {
                 badgeView.removeFromSuperview()
-                stackView.insertArrangedSubview(badgeView, at: 0)
-                stackView.setCustomSpacing(appliedConfiguration.textToBadgePadding, after: badgeView)
-                stackView.setCustomSpacing(NSStackView.useDefaultSpacing, after: textStackView)
+                badgeStackView.insertArrangedSubview(badgeView, at: 0)
             } else if badge.position == .trailing, stackView.arrangedSubviews.last != badgeView {
                 badgeView.removeFromSuperview()
-                stackView.addArrangedSubview(badgeView)
-                stackView.setCustomSpacing(appliedConfiguration.textToBadgePadding, after: textStackView)
-                stackView.setCustomSpacing(NSStackView.useDefaultSpacing, after: badgeView)
+                badgeStackView.addArrangedSubview(badgeView)
             }
         } else {
             badgeView?.removeFromSuperview()
             badgeView = nil
-            stackView.setCustomSpacing(NSStackView.useDefaultSpacing, after: textStackView)
+            badgeStackView.spacing = 0
         }
 
         imageView.calculatedSize = calculateImageViewSize()

@@ -46,14 +46,12 @@ import QuickLookUI
 open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, Element: Identifiable & Hashable>: NSObject, NSCollectionViewDataSource {
     weak var collectionView: NSCollectionView!
     var dataSource: NSCollectionViewDiffableDataSource<Section.ID, Element.ID>!
-    var delegateBridge: Delegate!
+    var delegate: Delegate!
     var currentSnapshot = NSDiffableDataSourceSnapshot<Section, Element>()
     var previousDisplayingItems = [Element.ID]()
-    var magnifyGestureRecognizer: NSMagnificationGestureRecognizer?
     var rightDownMonitor: NSEvent.Monitor?
     var keyDownMonitor: NSEvent.Monitor?
     var hoveredItemObserver: KeyValueObservation?
-    var pinchItem: Element?
 
     /// The closure that configures and returns the collection view’s supplementary views, such as headers and footers, from the diffable data source.
     open var supplementaryViewProvider: SupplementaryViewProvider?
@@ -65,9 +63,21 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         -  itemKind: The kind of supplementary view to provide. The layout object that supports the supplementary view defines the value of this string.
         - indexpath: The index path that specifies the location of the supplementary view in the collection view.
 
-     - Returns: A non-`nil` configured supplementary view object. The supplementary view provider must return a valid view object to the collection view.
+     - Returns: A configured supplementary view object.
      */
     public typealias SupplementaryViewProvider = (_ collectionView: NSCollectionView, _ itemKind: String, _ indexPath: IndexPath) -> (NSView & NSCollectionViewElement)?
+    
+    /**
+     Uses the specified supplementary registrations to configure and return the collection view’s supplementary views.
+
+     - Parameter registrations: The supplementary registrations
+     */
+    public func useSupplementaryRegistrations(_ registrations: [NSCollectionViewSupplementaryRegistration]) {
+        guard !registrations.isEmpty else { return }
+        supplementaryViewProvider = { collectionView, itemKind, indexPath in
+            (registrations.first(where: { $0.elementKind == itemKind }) as? _NSCollectionViewSupplementaryRegistration)?.makeSupplementaryView(collectionView, indexPath)
+        }
+    }
 
     /**
      Right click menu provider.
@@ -80,7 +90,16 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
      - else an empty array.
      */
     open var menuProvider: ((_ elements: [Element]) -> NSMenu?)? {
-        didSet { setupMenuProvider() }
+        didSet {
+            if menuProvider != nil  {
+                collectionView.menuProvider = { [weak self] location in
+                    guard let self = self else { return nil }
+                    return self.menuProvider?(self.elements(for: location))
+                }
+            } else {
+                collectionView.menuProvider = nil
+            }
+        }
     }
     
     /**
@@ -92,69 +111,17 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
      - else an empty array.
      */
     open var rightClickHandler: ((_ elements: [Element]) -> ())? {
-        didSet { setupRightDownHandler() }
-    }
-
-
-    /// A handler that gets called whenever collection view magnifies.
-    open var pinchHandler: ((_ element: Element?, _ mouseLocation: CGPoint, _ magnification: CGFloat, _ state: NSMagnificationGestureRecognizer.State) -> Void)? { didSet { observeMagnificationGesture() } }
-
-    func observeMagnificationGesture() {
-        if pinchHandler != nil {
-            if magnifyGestureRecognizer == nil {
-                magnifyGestureRecognizer = NSMagnificationGestureRecognizer(target: self, action: #selector(didMagnify(_:)))
-                collectionView.addGestureRecognizer(magnifyGestureRecognizer!)
+        didSet {
+            if rightClickHandler != nil {
+                collectionView.mouseHandlers.rightDown = { [weak self] event in
+                    guard let self = self, let handler = self.rightClickHandler else { return }
+                    let location = event.location(in: self.collectionView)
+                    handler(self.elements(for: location))
+                }
+            } else {
+                collectionView.mouseHandlers.rightDown = nil
             }
-        } else {
-            if let magnifyGestureRecognizer = magnifyGestureRecognizer {
-                collectionView.removeGestureRecognizer(magnifyGestureRecognizer)
-            }
-            magnifyGestureRecognizer = nil
         }
-    }
-
-    @objc func didMagnify(_ gesture: NSMagnificationGestureRecognizer) {
-        guard let pinchHandler = self.pinchHandler else { return }
-        let pinchLocation = gesture.location(in: collectionView)
-        switch gesture.state {
-        case .began:
-            //    let center = CGPoint(x: collectionView.frame.midX, y: collectionView.frame.midY)
-            pinchItem = element(at: pinchLocation)
-            pinchHandler(pinchItem, pinchLocation, gesture.magnification, gesture.state)
-        case .ended, .cancelled, .failed:
-            pinchHandler(pinchItem, pinchLocation, gesture.magnification, gesture.state)
-            pinchItem = nil
-        default:
-            pinchHandler(pinchItem, pinchLocation, gesture.magnification, gesture.state)
-        }
-    }
-    
-    func setupMenuProvider() {
-        if menuProvider != nil  {
-            collectionView.menuProvider = { [weak self] location in
-                guard let self = self else { return nil }
-                return self.menuProvider?(self.elements(for: location))
-            }
-        } else {
-            collectionView.menuProvider = nil
-        }
-    }
-
-    func setupRightDownHandler() {
-        if rightClickHandler != nil {
-            collectionView.mouseHandlers.rightDown = { [weak self] event in
-                guard let self = self, let handler = self.rightClickHandler else { return }
-                let location = event.location(in: self.collectionView)
-                handler(self.elements(for: location))
-            }
-        } else {
-            collectionView.mouseHandlers.rightDown = nil
-        }
-    }
-    
-    func setupRightClick(for location: CGPoint) {
-        guard let rightClick = rightClickHandler else { return }
-        rightClick(elements(for: location))
     }
     
     func elements(for location: CGPoint) -> [Element] {
@@ -291,10 +258,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         - completion: An optional completion handler which gets called after applying the snapshot. The system calls this closure from the main queue.
      */
     open func apply(_ snapshot: NSDiffableDataSourceSnapshot<Section, Element>, _ option: NSDiffableDataSourceSnapshotApplyOption = .animated, completion: (() -> Void)? = nil) {
-        var previousIsEmpty: Bool?
-        if emptyHandler != nil {
-            previousIsEmpty = currentSnapshot.isEmpty
-        }
+        let previousIsEmpty = currentSnapshot.isEmpty
         let internalSnapshot = snapshot.toIdentifiableSnapshot()
         currentSnapshot = snapshot
         dataSource.apply(internalSnapshot, option, completion: completion)
@@ -323,9 +287,8 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         self.collectionView = collectionView
         super.init()
 
-        dataSource = .init(collectionView: self.collectionView, itemProvider: {
+        dataSource = .init(collectionView: collectionView, itemProvider: {
             [weak self] collectionView, indePath, itemID in
-
             guard let self = self, let item = self.elements[id: itemID] else { return nil }
             return itemProvider(collectionView, indePath, item)
         })
@@ -335,12 +298,11 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
             return self.supplementaryViewProvider?(collectionView, itemKind, indePath)
         }
 
-        delegateBridge = Delegate(self)
+        delegate = Delegate(self)
         collectionView.isQuicklookPreviewable = Element.self is QuicklookPreviewable.Type
         collectionView.registerForDraggedTypes([.itemID, .fileURL, .tiff, .png, .string])
-        
+        collectionView.setDraggingSourceOperationMask(.copy, forLocal: false)
         // collectionView.setDraggingSourceOperationMask(.move, forLocal: true)
-         collectionView.setDraggingSourceOperationMask(.copy, forLocal: false)
     }
 
     /**
@@ -353,7 +315,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         -  indexpath: The index path that specifies the location of the item in the collection view.
         - element: The element for the collection view item.
 
-     - Returns: A non-`nil` configured collection view item object. The item provider must return a valid item object to the collection view.
+     - Returns: A configured collection view item object.
      */
     public typealias ItemProvider = (_ collectionView: NSCollectionView, _ indexPath: IndexPath, _ element: Element) -> NSCollectionViewItem?
 
@@ -607,20 +569,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         sections.firstIndex(of: section)
     }
 
-    /*
-    /// Returns the section at the index in the collection view.
-    open func section(for index: Int) -> Section? {
-        sections[safe: index]
-    }
-     */
-    
-    /**
-     Returns the section for the specified element.
-     
-     - Parameter element: The element in your collection view.
-     - Returns: The section, or `nil` if the element isn't in any section.
-     */
-    open func section(for element: Element) -> Section? {
+    func section(for element: Element) -> Section? {
         currentSnapshot.sectionIdentifier(containingItem: element)
     }
 
@@ -708,15 +657,11 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
             emptyView?.removeFromSuperview()
             emptyContentView?.removeFromSuperview()
             scrollViewContentViewObservation = nil
-        } else if let emptyView = self.emptyView, emptyView.superview != collectionView {
-            collectionView?.addSubview(withConstraint: emptyView)
-        } else if let emptyContentView = self.emptyContentView, emptyContentView.superview != collectionView {
-            collectionView?.addSubview(withConstraint: emptyContentView)
+        } else if let emptyView = emptyView ?? emptyContentView, emptyView.superview != collectionView?.enclosingScrollView ?? collectionView {
+            (collectionView?.enclosingScrollView ?? collectionView)?.addSubview(withConstraint: emptyView)
         }
-        if let emptyHandler = self.emptyHandler, let previousIsEmpty = previousIsEmpty {
-            if previousIsEmpty != currentSnapshot.isEmpty {
-                emptyHandler(currentSnapshot.isEmpty)
-            }
+        if let emptyHandler = self.emptyHandler, let previousIsEmpty = previousIsEmpty, previousIsEmpty != currentSnapshot.isEmpty {
+            emptyHandler(currentSnapshot.isEmpty)
         }
      }
 

@@ -43,11 +43,11 @@ import FZUIKit
 open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewDataSource where Section: Hashable & Identifiable, Item: Hashable & Identifiable {
     weak var tableView: NSTableView!
     var dataSource: NSTableViewDiffableDataSource<Section.ID, Item.ID>!
+    var delegate: Delegate!
     var currentSnapshot = NSDiffableDataSourceSnapshot<Section, Item>()
     var dragingRowIndexes = IndexSet()
     var sectionRowIndexes: [Int] = []
     var hoveredRowObserver: KeyValueObservation?
-    var delegateBridge: Delegate!
     var keyDownMonitor: NSEvent.Monitor?
 
     
@@ -55,8 +55,8 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
     open var rowViewProvider: RowProvider? {
         didSet {
             if let rowViewProvider = rowViewProvider {
-                dataSource.rowViewProvider = { tableview, row, identifier in
-                    let item = self.currentSnapshot.itemIdentifiers[id: identifier as! Item.ID]!
+                dataSource.rowViewProvider = { [weak self] tableview, row, identifier in
+                    guard let self = self, let item = self.currentSnapshot.itemIdentifiers[id: identifier as! Item.ID] else { return NSTableRowView() }
                     return rowViewProvider(tableview, row, item)
                 }
             } else {
@@ -70,8 +70,8 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
      
      - Parameters
         - tableView: The table view to configure this row view for.
-        - row: The row of the row view in the table view.
-        - item: The item for this row view.
+        - row: The row of the row view.
+        - item: The item of the row.
      
      - Returns: A configured row view object.
      */
@@ -88,9 +88,14 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
     open var sectionHeaderCellProvider: SectionHeaderCellProvider? {
         didSet {
             if let sectionHeaderCellProvider = sectionHeaderCellProvider {
-                dataSource.sectionHeaderViewProvider = { tableView, row, sectionID in
-                    let cellView = sectionHeaderCellProvider(tableView, row, self.sections[id: sectionID]!)
-                    return NSTableSectionHeaderView(cellView: cellView)
+                dataSource.sectionHeaderViewProvider = { [weak self] tableView, row, sectionID in
+                    guard let self = self, let section = self.sections[id: sectionID] else { return NSTableCellView() }
+                    let cellView = sectionHeaderCellProvider(tableView, row, section)
+                    if var configuration = cellView.contentConfiguration as? NSListContentConfiguration, configuration.type == .automatic {
+                        configuration.type = .automaticHeader
+                        cellView.contentConfiguration = configuration
+                    }
+                    return cellView
                 }
             } else {
                 dataSource.sectionHeaderViewProvider = nil
@@ -102,16 +107,15 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
      A closure that configures and returns a section header cell for a table view from its diffable data source.
      
      - Parameters
-        - tableView: The table view to configure this section header view for.
-        - row: The row of the view in the table view.
-        - section: The section for this section header view.
-        - item: The item for this section header view.
+        - tableView: The table view to configure this section header cell view for.
+        - row: The row of the section.
+        - section: The section.
      
-     - Returns: A configured section header view object.
+     - Returns: A configured section header cell view object.
      */
     public typealias SectionHeaderCellProvider = (_ tableView: NSTableView, _ row: Int, _ section: Section) -> NSTableCellView
     
-    /// Uses the specified cell registration to configure and return section header views.
+    /// Uses the specified cell registration to configure and return section header cell views.
     open func applySectionHeaderRegistration<Cell: NSTableCellView>(_ registration: NSTableView.CellRegistration<Cell, Section>) {
         sectionHeaderCellProvider = { tableView, row, section in
             if let column = tableView.tableColumns.first, let cellView = registration.makeCellView(tableView, column, row, section) {
@@ -132,7 +136,16 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
      - else an empty array.
      */
     open var menuProvider: ((_ items: [Item]) -> NSMenu?)? = nil {
-        didSet { setupMenuProvider() }
+        didSet {
+            if menuProvider != nil {
+                tableView.menuProvider = { [weak self] location in
+                    guard let self = self else { return nil }
+                    return self.menuProvider?(self.items(for: location))
+                }
+            } else {
+                tableView.menuProvider = nil
+            }
+        }
     }
     
     /**
@@ -144,7 +157,17 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
      - else an empty array.
      */
     open var rightClickHandler: ((_ items: [Item]) -> ())? = nil {
-        didSet { setupRightDownHandler() }
+        didSet {
+            if rightClickHandler != nil {
+                tableView.mouseHandlers.rightDown = { [weak self] event in
+                    guard let self = self, let handler = self.rightClickHandler else { return }
+                    let location = event.location(in: self.tableView)
+                    handler(self.items(for: location))
+                }
+            } else {
+                tableView.mouseHandlers.rightDown = nil
+            }
+        }
     }
     
     /// Provides an array of row actions to be attached to the specified edge of a table row and displayed when the user swipes horizontally across the row.
@@ -166,29 +189,6 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         dataSource.defaultRowAnimation.rawValue
     }
     
-    func setupMenuProvider() {
-        if menuProvider != nil {
-            tableView.menuProvider = { [weak self] location in
-                guard let self = self else { return nil }
-                return self.menuProvider?(self.items(for: location))
-            }
-        } else {
-            tableView.menuProvider = nil
-        }
-    }
-    
-    func setupRightDownHandler() {
-        if rightClickHandler != nil {
-            tableView.mouseHandlers.rightDown = { [weak self] event in
-                guard let self = self, let handler = self.rightClickHandler else { return }
-                let location = event.location(in: self.tableView)
-                handler(self.items(for: location))
-            }
-        } else {
-            tableView.mouseHandlers.rightDown = nil
-        }
-    }
-    
     func items(for location: CGPoint) -> [Item] {
         if let item = item(at: location) {
             var items: [Item] = [item]
@@ -207,15 +207,11 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
             if hoveredRowObserver == nil {
                 hoveredRowObserver = tableView.observeChanges(for: \.hoveredRow, handler: { old, new in
                     guard old != new else { return }
-                    if let didEndHovering = self.hoverHandlers.didEndHovering, let oldRow = old?.item {
-                        if oldRow != -1, let item = self.item(forRow: oldRow) {
-                            didEndHovering(item)
-                        }
+                    if let didEndHovering = self.hoverHandlers.didEndHovering, old != -1, let item = self.item(forRow: old) {
+                        didEndHovering(item)
                     }
-                    if let isHovering = self.hoverHandlers.isHovering, let newRow = new?.item {
-                        if newRow != -1, let item = self.item(forRow: newRow) {
-                            isHovering(item)
-                        }
+                    if let isHovering = self.hoverHandlers.isHovering, new != -1, let item = self.item(forRow: new) {
+                        isHovering(item)
                     }
                 })
             }
@@ -292,10 +288,7 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         - completion: An optional completion handler which gets called after applying the snapshot. The system calls this closure from the main queue.
      */
     open func apply(_ snapshot: NSDiffableDataSourceSnapshot<Section, Item>, _ option: NSDiffableDataSourceSnapshotApplyOption = .animated, completion: (() -> Void)? = nil) {
-        var previousIsEmpty: Bool?
-        if emptyHandler != nil {
-            previousIsEmpty = currentSnapshot.isEmpty
-        }
+        let previousIsEmpty = currentSnapshot.isEmpty
         let internalSnapshot = snapshot.toIdentifiableSnapshot()
         currentSnapshot = snapshot
         updateSectionRowIndexes()
@@ -367,7 +360,7 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
      
      - Parameters:
         - tableView: The initialized table view object to connect to the diffable data source.
-        - cellRegistrations: Cell registratiosn which returns each of the cells for the table view from the data the diffable data source provides.
+        - cellRegistrations: Cell registrations which returns each of the cells for the table view from the data the diffable data source provides.
      */
     public convenience init(tableView: NSTableView, cellRegistrations: [NSTableViewCellRegistration]) {
         self.init(tableView: tableView, cellProvider: {
@@ -399,18 +392,16 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         self.tableView = tableView
         super.init()
         
-        dataSource = .init(tableView: self.tableView, cellProvider: {
+        dataSource = .init(tableView: tableView, cellProvider: {
             [weak self] tableview, tablecolumn, row, itemID in
             guard let self = self, let item = self.items[id: itemID] else { return NSTableCellView() }
             return cellProvider(tableview, tablecolumn, row, item)
         })
         
-        delegateBridge = Delegate(self)
+        delegate = Delegate(self)
         tableView.registerForDraggedTypes([.itemID, .fileURL, .tiff, .png, .string])
-
-        // tableView.setDraggingSourceOperationMask(.move, forLocal: true)
-        // tableView.setDraggingSourceOperationMask(.move, forLocal: true)
         tableView.isQuicklookPreviewable = Item.self is QuicklookPreviewable.Type
+        // tableView.setDraggingSourceOperationMask(.move, forLocal: true)
     }
     
     /**
@@ -422,7 +413,7 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         - row: The row of the cell in the table view.
         - item: The item for this cell.
      
-     - Returns: A non-`nil` configured cell object. The cell provider must return a valid cell object to the table view.
+     - Returns: A configured cell object.
      */
     public typealias CellProvider = (_ tableView: NSTableView, _ tableColumn: NSTableColumn, _ row: Int, _ item: Item) -> NSView
     
@@ -631,11 +622,6 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         }
         return nil
     }
-        
-    @discardableResult
-    func removeItems(_ items: [Item]) -> DiffableDataSourceTransaction<Section, Item> {
-        deletingTransaction(items)
-    }
     
     func deletingTransaction(_ deletionItems: [Item]) -> DiffableDataSourceTransaction<Section, Item> {
         var newNnapshot = snapshot()
@@ -670,19 +656,6 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         dataSource.row(forSectionIdentifier: section.id)
     }
     
-    /*
-    /// Returns the section at the index in the table view.
-    open func section(for index: Int) -> Section? {
-        sections[safe: index]
-    }
-     */
-    
-    /**
-     Returns the section for the specified row in the table view.
-     
-     - Parameter row: The row of the section in the table view.
-     - Returns: The section, or `nil` if the method doesn’t find the section for the row.
-     */
     func section(forRow row: Int) -> Section? {
         if let sectionID = dataSource.sectionIdentifier(forRow: row) {
             return sections[id: sectionID]
@@ -690,13 +663,7 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         return nil
     }
     
-    /**
-     Returns the section for the specified item.
-     
-     - Parameter item: The item in your table view.
-     - Returns: The section, or `nil` if the item isn't in any section.
-     */
-    open func section(for item: Item) -> Section? {
+    func section(for item: Item) -> Section? {
         currentSnapshot.sectionIdentifier(containingItem: item)
     }
 
@@ -710,10 +677,6 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
     func rows(for section: Section) -> [Int] {
         let items = currentSnapshot.itemIdentifiers(inSection: section)
         return items.compactMap({row(for: $0)})
-    }
-
-    func rows(for sections: [Section]) -> [Int] {
-        sections.flatMap { rows(for: $0) }
     }
     
     // MARK: - Empty Collection View
@@ -780,10 +743,8 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
             emptyView?.removeFromSuperview()
             emptyContentView?.removeFromSuperview()
             scrollViewContentViewObservation = nil
-        } else if let emptyView = self.emptyView, emptyView.superview != tableView {
-            tableView?.addSubview(withConstraint: emptyView)
-        } else if let emptyContentView = self.emptyContentView, emptyContentView.superview != tableView {
-            tableView?.addSubview(withConstraint: emptyContentView)
+        } else if let emptyView = emptyView ?? emptyContentView, emptyView.superview != tableView?.enclosingScrollView ?? tableView {
+            (tableView?.enclosingScrollView ?? tableView)?.addSubview(withConstraint: emptyView)
         }
         if let emptyHandler = self.emptyHandler, let previousIsEmpty = previousIsEmpty {
             if previousIsEmpty != currentSnapshot.isEmpty {
