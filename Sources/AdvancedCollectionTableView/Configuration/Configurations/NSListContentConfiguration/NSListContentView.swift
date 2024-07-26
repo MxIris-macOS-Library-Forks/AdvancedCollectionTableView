@@ -40,7 +40,7 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
 
     func initialSetup() {
         clipsToBounds = false
-        stackView.translatesAutoresizingMaskIntoConstraints = false
+        imageTextStackView.translatesAutoresizingMaskIntoConstraints = false
         badgeStackView.translatesAutoresizingMaskIntoConstraints = false
         stackViewConstraints = addSubview(withConstraint: badgeStackView)
     }
@@ -52,15 +52,18 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
         }
     }
 
-    lazy var textField = ListItemTextField(properties: appliedConfiguration.textProperties)
-    lazy var secondaryTextField = ListItemTextField(properties: appliedConfiguration.secondaryTextProperties)
+    let textField = ListItemTextField.wrapping().truncatesLastVisibleLine(true)
+    let secondaryTextField = ListItemTextField.wrapping().truncatesLastVisibleLine(true)
     lazy var imageView = ListImageView(properties: appliedConfiguration.imageProperties)
     var badgeView: BadgeView?
+    var topAccesoryViews: [AccessoryView] = []
+    var bottomAccesoryViews: [AccessoryView] = []
 
     lazy var textStackView = NSStackView(views: [textField, secondaryTextField]).orientation(.vertical).alignment(.leading)
-    lazy var stackView = NSStackView(views: [imageView, textStackView]).orientation(.horizontal).distribution(.fill)
+    lazy var imageTextStackView = NSStackView(views: [imageView, textStackView]).orientation(.horizontal).distribution(.fill)
+    // lazy var stackView = NSStackView(views: [imageView, textStackView]).orientation(.horizontal).distribution(.fill)
     var stackViewConstraints: [NSLayoutConstraint] = []
-    lazy var badgeStackView = NSStackView(views: [stackView]).orientation(.horizontal).distribution(.fill).alignment(.centerY)
+    lazy var badgeStackView = NSStackView(views: [imageTextStackView]).orientation(.horizontal).distribution(.fill).alignment(.centerY)
 
     var isEditing: Bool = false {
         didSet {
@@ -71,6 +74,9 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
                 tableRowView.setNeedsAutomaticUpdateConfiguration()
             } else if let collectionViewItem = collectionViewItem, collectionViewItem.view == self {
                 collectionViewItem.setNeedsAutomaticUpdateConfiguration()
+            }
+            if !isEditing {
+                updateTableRowHeight()
             }
         }
     }
@@ -90,7 +96,6 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
     func updateConfiguration() {
         toolTip = appliedConfiguration.toolTip
         imageView.verticalConstraint?.activate(false)
-        badgeView?.verticalConstraint?.activate(false)
 
         textField.isEnabled = appliedConfiguration.state.isEnabled != false
         textField.properties = appliedConfiguration.textProperties
@@ -103,21 +108,14 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
         imageView.properties = appliedConfiguration.imageProperties
 
         textStackView.spacing = appliedConfiguration.textToSecondaryTextPadding
-        stackView.spacing = appliedConfiguration.imageToTextPadding
-        stackView.orientation = appliedConfiguration.imageProperties.position.orientation
-        stackView.alignment = appliedConfiguration.imageProperties.position.alignment
-
-        if appliedConfiguration.imageProperties.position.imageIsLeading, stackView.arrangedSubviews.first != imageView {
-            stackView.removeArrangedSubview(textStackView)
-            stackView.addArrangedSubview(textStackView)
-        } else if appliedConfiguration.imageProperties.position.imageIsLeading == false, stackView.arrangedSubviews.last != imageView {
-            stackView.removeArrangedSubview(imageView)
-            stackView.addArrangedSubview(imageView)
-        }
+        imageTextStackView.spacing = appliedConfiguration.imageToTextPadding
+        imageTextStackView.orientation = appliedConfiguration.imageProperties.position.orientation
+        imageTextStackView.alignment = appliedConfiguration.imageProperties.position.alignment
+        imageTextStackView.addArrangedSubview(appliedConfiguration.imageProperties.position.imageIsLeading ? textStackView : imageView)
 
         stackViewConstraints.constant(appliedConfiguration.margins)
 
-        if appliedConfiguration.hasBadge, appliedConfiguration.imageProperties.position.orientation == .horizontal, let badge = appliedConfiguration.badge {
+        if let badge = appliedConfiguration.badge, appliedConfiguration.imageProperties.position.orientation == .horizontal {
             badgeStackView.spacing = appliedConfiguration.textToBadgePadding
             badgeStackView.alignment = badge.alignment.alignment
             if badgeView == nil {
@@ -125,13 +123,7 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
             }
             guard let badgeView = badgeView else { return }
             badgeView.properties = badge
-            if badge.position == .leading, stackView.arrangedSubviews.first != badgeView {
-                badgeView.removeFromSuperview()
-                badgeStackView.insertArrangedSubview(badgeView, at: 0)
-            } else if badge.position == .trailing, stackView.arrangedSubviews.last != badgeView {
-                badgeView.removeFromSuperview()
-                badgeStackView.addArrangedSubview(badgeView)
-            }
+            badgeStackView.arrangedViews = badge.position == .leading ? [badgeView, imageTextStackView] : [imageTextStackView, badgeView]
         } else {
             badgeView?.removeFromSuperview()
             badgeView = nil
@@ -170,6 +162,32 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
             }
         default: break
         }
+
+        if topAccesoryViews.count != appliedConfiguration.topAccesories.count {
+            var count = appliedConfiguration.topAccesories.count - topAccesoryViews.count
+            if count > 0 {
+                let range = appliedConfiguration.topAccesories.count-count..<appliedConfiguration.topAccesories.count
+                topAccesoryViews.append(contentsOf: appliedConfiguration.topAccesories[range].compactMap({ AccessoryView(accessory: $0) }))
+            } else {
+                count = -count
+                let range = topAccesoryViews.count-count..<topAccesoryViews.count
+                topAccesoryViews[range].forEach({$0.removeFromSuperview()})
+                topAccesoryViews.remove(at: range)
+            }
+        }
+        if bottomAccesoryViews.count != appliedConfiguration.bottomAccesories.count {
+            var count = appliedConfiguration.bottomAccesories.count - bottomAccesoryViews.count
+            if count > 0 {
+                let range = appliedConfiguration.bottomAccesories.count-count..<appliedConfiguration.bottomAccesories.count
+                bottomAccesoryViews.append(contentsOf: appliedConfiguration.bottomAccesories[range].compactMap({ AccessoryView(accessory: $0) }))
+            } else {
+                count = -count
+                let range = bottomAccesoryViews.count-count..<bottomAccesoryViews.count
+                bottomAccesoryViews[range].forEach({$0.removeFromSuperview()})
+                bottomAccesoryViews.remove(at: range)
+            }
+        }
+        updateTableRowHeight()
     }
 
     func calculateTextFieldsSize(imageSize: CGSize?) -> CGSize {
@@ -277,15 +295,17 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
     /// Perform layout in concert with the constraint-based layout system.
     override open func layout() {
         super.layout()
+        guard bounds.width != boundsWidth else { return }
+        boundsWidth = bounds.width
+        textField.preferredMaxLayoutWidth = (boundsWidth - 34).clamped(min: 0)
+        secondaryTextField.preferredMaxLayoutWidth = textField.preferredMaxLayoutWidth
         updateTableRowHeight()
     }
-
-    var width: CGFloat = 0.0
+    
+    var boundsWidth: CGFloat = 0.0
     func updateTableRowHeight() {
-        guard bounds.width != width else { return }
-        width = bounds.width
-        if let tableRowView = tableRowView, frame.size.height > fittingSize.height {
-            tableRowView.frame.size.height = fittingSize.height
+        if frame.size.height > fittingSize.height {
+            tableRowView?.frame.size.height = fittingSize.height
         }
     }
 

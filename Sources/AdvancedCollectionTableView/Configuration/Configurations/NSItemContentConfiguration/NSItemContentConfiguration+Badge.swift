@@ -74,8 +74,8 @@ public extension NSItemContentConfiguration {
         /// The image of the badge.
         public var image: NSImage?
 
-        /// The view of the badge. **Currently not working.**
-        public var view: NSView?
+        /// The view of the badge.
+        var view: NSView?
 
         /// Properties for configuring the text.
         public var textProperties: TextProperties = .init()
@@ -88,7 +88,7 @@ public extension NSItemContentConfiguration {
 
         /// The color transformer for resolving the background color.
         public var backgroundColorTransformer: ColorTransformer?
-
+        
         /// Generates the resolved background color, using the background color and color transformer.
         public func resolvedBackgroundColor() -> NSColor? {
             if let backgroundColor = backgroundColor {
@@ -110,7 +110,7 @@ public extension NSItemContentConfiguration {
         /// The shadow of the badge.
         public var shadow: ShadowConfiguration = .none()
 
-        /// The margins between the text and the edges of the badge.
+        /// The margins between the text/image and the edges of the badge.
         public var margins = NSDirectionalEdgeInsets(width: 8, height: 4)
 
         /// The maximum width of the badge. If the text is larger than the width, it will be truncated.

@@ -294,13 +294,9 @@ extension NSTextField {
         minimumScaleFactor = properties.minimumScaleFactor
         allowsDefaultTighteningForTruncation = properties.allowsDefaultTighteningForTruncation
         toolTip = properties.toolTip
-        editingActionOnEnterKeyDown = properties.editingActionOnEnterKeyDown.action
-        editingActionOnEscapeKeyDown = properties.editingActionOnEscapeKeyDown.action
         bezelStyle = properties.bezel.type
         isBezeled = properties.bezel.isBezeled
         isBordered = properties.bezel.isBezeled
-        editingActionOnEnterKeyDown = properties.editingActionOnEnterKeyDown.action
-        editingActionOnEscapeKeyDown = properties.editingActionOnEscapeKeyDown.action
     }
 }
 
@@ -319,6 +315,26 @@ extension NSTextView {
         isEditable = properties.isEditable
         isSelectable = properties.isSelectable
         toolTip = properties.toolTip
+    }
+}
+
+extension NSTextAlignment {
+    var swiftUI: Alignment {
+        switch self {
+        case .left: return .leading
+        case .center: return .center
+        case .right: return .trailing
+        default: return .leading
+        }
+    }
+
+    var swiftUIMultiline: SwiftUI.TextAlignment {
+        switch self {
+        case .left: return .leading
+        case .center: return .center
+        case .right: return .trailing
+        default: return .leading
+        }
     }
 }
 

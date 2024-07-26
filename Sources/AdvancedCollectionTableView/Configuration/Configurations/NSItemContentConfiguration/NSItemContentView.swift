@@ -15,6 +15,7 @@ open class NSItemContentView: NSView, NSContentView, EdiitingContentView {
         appliedConfiguration = configuration
         super.init(frame: .zero)
         isOpaque = false
+        wantsLayer = true
         clipsToBounds = false
         stackviewConstraints = addSubview(withConstraint: stackView)
         updateConfiguration()
@@ -58,8 +59,8 @@ open class NSItemContentView: NSView, NSContentView, EdiitingContentView {
         return nil
     }
 
-    lazy var textField = ListItemTextField(properties: appliedConfiguration.textProperties)
-    lazy var secondaryTextField = ListItemTextField(properties: appliedConfiguration.secondaryTextProperties)
+    let textField = ListItemTextField.wrapping().truncatesLastVisibleLine(true)
+    let secondaryTextField = ListItemTextField.wrapping().truncatesLastVisibleLine(true)
     lazy var contentView = ItemContentView(configuration: appliedConfiguration)
 
     lazy var textStackView = NSStackView(views: [textField, secondaryTextField]).orientation(.vertical).alignment(.leading).spacing(appliedConfiguration.textToSecondaryTextPadding)
@@ -115,6 +116,8 @@ open class NSItemContentView: NSView, NSContentView, EdiitingContentView {
         textField.updateText(appliedConfiguration.text, appliedConfiguration.attributedText, appliedConfiguration.placeholderText, appliedConfiguration.attributedPlaceholderText)
         secondaryTextField.properties = appliedConfiguration.secondaryTextProperties
         secondaryTextField.updateText(appliedConfiguration.secondaryText, appliedConfiguration.secondaryAttributedText, appliedConfiguration.secondaryPlaceholderText, appliedConfiguration.secondaryAttributedPlaceholderText)
+        textField.isEnabled = firstSuperview(for: NSCollectionView.self)?.isEnabled ?? true
+        secondaryTextField.isEnabled = textField.isEnabled
 
         scale = appliedConfiguration.scaleTransform.point
         contentView.configuration = appliedConfiguration
@@ -122,13 +125,8 @@ open class NSItemContentView: NSView, NSContentView, EdiitingContentView {
         stackView.spacing = appliedConfiguration.contentToTextPadding
         stackView.orientation = appliedConfiguration.contentPosition.orientation
         stackView.alignment = appliedConfiguration.contentAlignment
-        if appliedConfiguration.contentPosition.contentIsLeading, stackView.arrangedSubviews.first != contentView {
-            stackView.removeArrangedSubview(textStackView)
-            stackView.addArrangedSubview(textStackView)
-        } else if appliedConfiguration.contentPosition.contentIsLeading == false, stackView.arrangedSubviews.last != contentView {
-            stackView.removeArrangedSubview(contentView)
-            stackView.addArrangedSubview(contentView)
-        }
+        stackView.arrangedViews = appliedConfiguration.contentPosition.contentIsLeading ? [contentView, textStackView] : [textStackView, contentView]
+        stackView.addArrangedSubview(appliedConfiguration.contentPosition.contentIsLeading ? textStackView : contentView)
         stackviewConstraints.constant(appliedConfiguration.margins)
         if appliedConfiguration.contentPosition.isFirstBaseline, appliedConfiguration.image?.isSymbolImage == false {
             if appliedConfiguration.hasText {

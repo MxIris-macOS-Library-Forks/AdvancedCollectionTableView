@@ -33,6 +33,18 @@ public extension NSListContentConfiguration {
                 self == .firstBaseline ? .firstBaseline : .centerY
             }
         }
+        
+        /// The shape of the badge.
+        public enum Shape: Hashable {
+            /// A rounded badge with the specified corner radius.
+            case roundedRect(radius: CGFloat)
+            /// A circular badge.
+            case circle
+            
+            /// A rounded badge with a corner radius of `6.0`.
+            public static let roundedRect = Shape.roundedRect(radius: 6.0)
+            
+        }
 
         /// The text of the badge.
         public var text: String?
@@ -77,13 +89,10 @@ public extension NSListContentConfiguration {
         /// The border of the badge.
         public var border: BorderConfiguration = .none()
 
-        /// The corner radius of the badge.
-        public var cornerRadius: CGFloat = 6.0
-
         /// The shadow of the badge.
         public var shadow: ShadowConfiguration = .none()
 
-        /// The margins between the text and the edges of the badge.
+        /// The margins between the text/image and the edges of the badge.
         public var margins = NSDirectionalEdgeInsets(width: 4, height: 2)
 
         /// The maximum width of the badge. If the text is larger than the width, it will be truncated.
@@ -94,6 +103,9 @@ public extension NSListContentConfiguration {
         
         /// The alignment of the badge.
         public var alignment: Alignment = .center
+        
+        /// The shape of the badge.
+        public var shape: Shape = .roundedRect
 
         /// The padding between the image and text.
         public var imageToTextPadding: CGFloat = 2.0
@@ -102,7 +114,7 @@ public extension NSListContentConfiguration {
         public var toolTip: String? = nil
 
         /// Creates a badge.
-        public init() {}
+        public init() { }
 
         /**
          A badge displaying a text.
@@ -154,17 +166,6 @@ public extension NSListContentConfiguration {
             badge.backgroundColor = backgroundColor
             return badge
         }
-
-        var isVisible: Bool {
-            text != nil || attributedText != nil || image != nil
-        }
-
-        var resolvedImageTintColor: NSColor {
-            imageProperties.resolvedTintColor() ?? color
-        }
-
-       // var _resolvedBackgroundColor: NSColor? = .controlAccentColor
-       // var _resolvedColor: NSColor = .white
     }
 }
 
@@ -172,26 +173,34 @@ public extension NSListContentConfiguration.Badge {
     /// Properties that affect the image of a badge.
     struct ImageProperties: Hashable {
         /// The position of the badge image.
-        enum Position: Int, Hashable {
+        public enum Position: Int, Hashable {
             /// The image is leading.
             case leading
             /// The image is trailing.
             case trailing
         }
+        
+        /// The image scaling.
+        public enum Scaling: Int, Hashable {
+            /// The image is resized to fit the bounds rectangle, preserving the aspect of the image. If the image does not completely fill the bounds rectangle, the image is centered in the partial axis.
+            case scaleToFit
+            /// The image is resized to completely fill the bounds rectangle, while still preserving the aspect of the image.
+            case scaleToFill
+            /// The image is resized to fit the entire bounds rectangle.
+            case resize
+            /// The image isn't resized.
+            case none
+            
+            var swiftUI: SwiftUI.Image.ImageScaling {
+                return .init(rawValue: rawValue)!
+            }
+        }
 
         /// The symbol configuration of the image.
-        var symbolConfiguration: ImageSymbolConfiguration?
-
-        /// The maximum width of the image.
-        var maxWidth: CGFloat?
-
-        /// The maximum height of the image.
-        var maxHeight: CGFloat?
+        public var symbolConfiguration: ImageSymbolConfiguration?
 
         /// The image scaling.
-        public var scaling: NSImageScaling = .scaleNone
-
-        var position: Position = .leading
+        public var scaling: Scaling = .scaleToFit
 
         /// The tint color for an image that is a template or symbol image.
         public var tintColor: NSColor?
@@ -206,5 +215,14 @@ public extension NSListContentConfiguration.Badge {
             }
             return nil
         }
+        
+        /// The position of the image.
+        public var position: Position = .leading
+        
+        /// The maximum width of the image.
+        public var maxWidth: CGFloat?
+
+        /// The maximum height of the image.
+        public var maxHeight: CGFloat?
     }
 }
