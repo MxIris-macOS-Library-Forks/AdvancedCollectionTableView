@@ -10,18 +10,8 @@ import FZSwiftUtils
 import FZUIKit
 
 extension NSCollectionView {
-    /// A Boolean value that indicates whether the collection view reacts to mouse events.
-    @objc open var isEnabled: Bool {
-        get { getAssociatedValue("isEnabled", initialValue: false) }
-        set {
-            guard newValue != isEnabled else { return }
-            setAssociatedValue(newValue, key: "isEnabled")
-            visibleItems().forEach({$0.setNeedsAutomaticUpdateConfiguration()})
-        }
-    }
-    
     @objc dynamic var hoveredIndexPath: IndexPath? {
-        get { getAssociatedValue("hoveredIndexPath", initialValue: nil) }
+        get { getAssociatedValue("hoveredIndexPath") }
         set {
             guard newValue != hoveredIndexPath else { return }
             hoveredItem?.isHovered = false
@@ -44,9 +34,21 @@ extension NSCollectionView {
     }
     
     var observerView: ObserverView? {
-        get { getAssociatedValue("collectionViewObserverView", initialValue: nil) }
+        get { getAssociatedValue("collectionViewObserverView") }
         set { setAssociatedValue(newValue, key: "collectionViewObserverView") }
     }
+    
+    /*
+    /// A Boolean value that indicates whether the collection view reacts to mouse events.
+    @objc open var isEnabled: Bool {
+        get { getAssociatedValue("isEnabled", initialValue: false) }
+        set {
+            guard newValue != isEnabled else { return }
+            setAssociatedValue(newValue, key: "isEnabled")
+            visibleItems().forEach({ $0.setNeedsAutomaticUpdateConfiguration() })
+        }
+    }
+     */
 
     class ObserverView: NSView {
         var tokens: [NotificationToken] = []
@@ -84,18 +86,12 @@ extension NSCollectionView {
             guard let collectionView = collectionView else { return }
             let location = event.location(in: collectionView)
             collectionView.hoveredIndexPath = collectionView.indexPathForItem(at: location)
-            /*
-             if let indexPath = collectionView.indexPathForItem(at: location), let item = collectionView.item(at: indexPath) {
-             item.isHovered = (item.view as? NSItemContentView)?.checkHoverLocation(location) ?? true
-             if let view = item.view as? NSItemContentView {
-             item.isHovered = view.checkHoverLocation(location)
-             } else {
-             item.isHovered = item.view.frame.contains(location)
-             }
-             }
-             */
             if let item = collectionView.hoveredItem {
-                item.checkHoverLocation(collectionView.convert(location, to: item.view))
+                if let view = item.view as? NSItemContentView {
+                    item.isHovered = view.isHovering(at: collectionView.convert(location, to: view))
+                } else {
+                    item.isHovered = true
+                }
             }
         }
         

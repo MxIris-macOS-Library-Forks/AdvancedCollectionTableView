@@ -74,8 +74,8 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
      */
     public func useSupplementaryRegistrations(_ registrations: [NSCollectionViewSupplementaryRegistration]) {
         guard !registrations.isEmpty else { return }
-        supplementaryViewProvider = { collectionView, itemKind, indexPath in
-            (registrations.first(where: { $0.elementKind == itemKind }) as? _NSCollectionViewSupplementaryRegistration)?.makeSupplementaryView(collectionView, indexPath)
+        supplementaryViewProvider = { collectionView, elementKind, indexPath in
+            (registrations.first(where: { $0.elementKind == elementKind }) as? _NSCollectionViewSupplementaryRegistration)?.makeSupplementaryView(collectionView, indexPath)
         }
     }
 
@@ -196,32 +196,16 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
                 guard let self = self, event.charactersIgnoringModifiers == String(UnicodeScalar(NSDeleteCharacter)!), self.collectionView.isFirstResponder else { return event }
                 let elementsToDelete = canDelete(self.selectedElements)
                 guard !elementsToDelete.isEmpty else { return event }
-                var section: Section? = nil
-                var selectionElement: Element? = nil
-                if let element = elementsToDelete.first {
-                    if let indexPath = self.indexPath(for: element), indexPath.item > 0,  let element = self.element(for: IndexPath(item: indexPath.item - 1, section: indexPath.section)), !elementsToDelete.contains(element) {
-                        selectionElement = element
-                    } else {
-                        section = self.section(for: element)
-                    }
-                }
-                let transaction = self.deletionTransaction(elementsToDelete)
+                
+                let transaction = self.currentSnapshot.deleteTransaction(elementsToDelete)
                 self.deletingHandlers.willDelete?(elementsToDelete, transaction)
                 QuicklookPanel.shared.close()
                 self.apply(transaction.finalSnapshot, self.deletingHandlers.animates ? .animated : .withoutAnimation)
                 self.deletingHandlers.didDelete?(elementsToDelete, transaction)
                 
                 if !self.collectionView.allowsEmptySelection, self.collectionView.selectionIndexPaths.isEmpty {
-                    var selectionIndexPath: IndexPath?
-                    if let element = selectionElement, let indexPath = self.indexPath(for: element) {
-                        selectionIndexPath = indexPath
-                    } else if let section = section, let element = self.elements(for: section).first, let indexPath = self.indexPath(for: element) {
-                        selectionIndexPath = indexPath
-                    } else if let item = self.currentSnapshot.itemIdentifiers.first, let indexPath = self.indexPath(for: item) {
-                        selectionIndexPath = indexPath
-                    }
-                    if let indexPath = selectionIndexPath {
-                        self.collectionView.selectItems(at: [indexPath], scrollPosition: [])
+                    if let element = transaction.initialSnapshot.nextItemForDeleting(elementsToDelete) ?? self.elements.first {
+                        self.selectElements([element], scrollPosition: [])
                     }
                 }
                 return nil
@@ -408,12 +392,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         }
     }
 
-    /**
-     Returns the element at the specified index path in the collection view.
-
-     - Parameter indexPath: The index path.
-     - Returns: The element at the index path or nil if there isn't any element at the index path.
-     */
+    /// Returns the element at the specified index path in the collection view.
     open func element(for indexPath: IndexPath) -> Element? {
         if let itemId = dataSource.itemIdentifier(for: indexPath) {
             return currentSnapshot.itemIdentifiers[id: itemId]
@@ -421,21 +400,21 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         return nil
     }
     
+    /// Returns the index path for the specified element.
+    open func indexPath(for element: Element) -> IndexPath? {
+        dataSource.indexPath(for: element.id)
+    }
+    
     /// Returns the elements for the specified section.
     open func elements(for section: Section) -> [Element] {
         currentSnapshot.itemIdentifiers(inSection: section)
     }
 
-    /// Returns the index path for the specified element in the collection view.
-    open func indexPath(for element: Element) -> IndexPath? {
-        dataSource.indexPath(for: element.id)
-    }
-
     /**
      Returns the element at the specified point.
 
-     - Parameter point: The point in the collection view’s bounds that you want to test.
-     - Returns: The element at the specified point or `nil` if no element was found at that point.
+     - Parameter point: The point in in the collection view.
+     - Returns: The element at the specified point or `nil` if there isn't any element.
      */
     open func element(at point: CGPoint) -> Element? {
         if let indexPath = collectionView.indexPathForItem(at: point) {
@@ -506,14 +485,6 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         return nil
     }
 
-    /// The frame of the collection view item for the specified item.
-    func itemFrame(for element: Element) -> CGRect? {
-        if let indexPath = indexPath(for: element) {
-            return collectionView.frameForItem(at: indexPath)
-        }
-        return nil
-    }
-
     func indexPaths(for elements: [Element]) -> [IndexPath] {
         elements.compactMap { indexPath(for: $0) }
     }
@@ -523,36 +494,24 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         return indexPaths(for: elements)
     }
 
-    func indexPaths(for sections: [Section]) -> [IndexPath] {
-        sections.flatMap { indexPaths(for: $0) }
-    }
-
     func elements(for sections: [Section]) -> [Element] {
         let currentSnapshot = currentSnapshot
         return sections.flatMap { currentSnapshot.itemIdentifiers(inSection: $0) }
     }
-
-    func deletionTransaction(_ elements: [Element]) -> DiffableDataSourceTransaction<Section, Element> {
-        var finalSnapshot = snapshot()
-        finalSnapshot.deleteItems(elements)
-        return DiffableDataSourceTransaction(initial: currentSnapshot, final: finalSnapshot)
-    }
     
-    func movingTransaction(at indexPaths: [IndexPath], to toIndexPath: IndexPath) -> DiffableDataSourceTransaction<Section, Element>? {
+    func movingTransaction(for elements: [Element], to indexPath: IndexPath) -> DiffableDataSourceTransaction<Section, Element> {
         var newSnapshot = snapshot()
-        let newItems = indexPaths.compactMap { element(for: $0) }
-        if let item = element(for: toIndexPath) {
-            newSnapshot.insertItems(newItems, beforeItem: item)
-        } else if let section = section(at: toIndexPath) {
-            var indexPath = toIndexPath
-            indexPath.item -= 1
-            if let item = element(for: indexPath) {
-                newSnapshot.insertItems(newItems, afterItem: item)
-            } else {
-                newSnapshot.appendItems(newItems, toSection: section)
-            }
+        if let item = element(for: indexPath) {
+            newSnapshot.insertItemsSaftly(elements, beforeItem: item)
+        } else if let item = element(for: IndexPath(item: indexPath.item-1, section: indexPath.section)) {
+            newSnapshot.insertItemsSaftly(elements, afterItem: item)
+        } else if indexPath.item == 0, let section = sections[safe: indexPath.section-1] {
+            sections[safe: indexPath.section-1]
+            newSnapshot.appendItems(elements, toSection: section)
+        } else if let section = sections[safe: indexPath.section] {
+            newSnapshot.appendItems(elements, toSection: section)
         } else if let section = sections.last {
-            newSnapshot.appendItems(newItems, toSection: section)
+            newSnapshot.appendItems(elements, toSection: section)
         }
         return DiffableDataSourceTransaction(initial: currentSnapshot, final: newSnapshot)
     }
@@ -567,6 +526,11 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
     /// Returns the index for the section in the collection view.
     open func index(for section: Section) -> Int? {
         sections.firstIndex(of: section)
+    }
+    
+    /// Returns the section at the specified index.
+    open func section(at index: Int) -> Section? {
+        sections[safe: index]
     }
 
     func section(for element: Element) -> Section? {
@@ -585,13 +549,6 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         let indexPaths = Set([IndexPath(item: 0, section: index)])
         collectionView.scrollToItems(at: indexPaths, scrollPosition: scrollPosition)
     }
-
-    func section(at indexPath: IndexPath) -> Section? {
-        if indexPath.section <= sections.count - 1 {
-            return sections[indexPath.section]
-        }
-        return nil
-    }
     
     // MARK: - Empty Collection View
     
@@ -604,7 +561,6 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         didSet {
             guard oldValue != emptyView else { return }
             oldValue?.removeFromSuperview()
-            scrollViewContentViewObservation = nil
             if emptyView != nil {
                 emptyContentConfiguration = nil
                 updateEmptyView()
@@ -629,7 +585,6 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
                 emptyView = nil
                 updateEmptyView()
             } else {
-                scrollViewContentViewObservation = nil
                 emptyContentView = nil
             }
         }
@@ -649,14 +604,11 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
             emptyHandler?(currentSnapshot.isEmpty)
         }
     }
-    
-    var scrollViewContentViewObservation: KeyValueObservation?
-    
+        
     func updateEmptyView(previousIsEmpty: Bool? = nil) {
         if !currentSnapshot.isEmpty {
             emptyView?.removeFromSuperview()
             emptyContentView?.removeFromSuperview()
-            scrollViewContentViewObservation = nil
         } else if let emptyView = emptyView ?? emptyContentView, emptyView.superview != collectionView?.enclosingScrollView ?? collectionView {
             (collectionView?.enclosingScrollView ?? collectionView)?.addSubview(withConstraint: emptyView)
         }

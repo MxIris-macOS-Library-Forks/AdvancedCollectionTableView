@@ -44,7 +44,12 @@ extension NSTableRowView {
      */
     @objc open var automaticallyUpdatesContentConfiguration: Bool {
         get { getAssociatedValue("automaticallyUpdatesContentConfiguration", initialValue: true) }
-        set { setAssociatedValue(newValue, key: "automaticallyUpdatesContentConfiguration")
+        set { 
+            guard newValue != automaticallyUpdatesContentConfiguration else { return }
+            setAssociatedValue(newValue, key: "automaticallyUpdatesContentConfiguration")
+            if newValue, let contentConfiguration = contentConfiguration, let contentView = contentView {
+                contentView.configuration = contentConfiguration.updated(for: configurationState)
+            }
         }
     }
 
@@ -176,6 +181,15 @@ extension NSTableRowView {
         window?.isKeyWindow ?? false
     }
     
+    @objc var isReordering: Bool {
+        get { getAssociatedValue("isReordering") ?? false }
+        set { 
+            guard newValue != isReordering else { return }
+            setAssociatedValue(newValue, key: "isReordering")
+            setNeedsAutomaticUpdateConfiguration(updateCells: true)
+        }
+    }
+    
     func observeSelection() {
         guard isSelectedObservation == nil else { return }
         isSelectedObservation = observeChanges(for: \.isSelected) { [weak self] old, new in
@@ -221,17 +235,17 @@ extension NSTableRowView {
     }
     
     var rowObserver: KeyValueObserver<NSTableRowView>? {
-        get { getAssociatedValue("rowObserver", initialValue: nil) }
+        get { getAssociatedValue("rowObserver") }
         set { setAssociatedValue(newValue, key: "rowObserver") }
     }
     
     var tableViewObserverView: TableViewObserverView? {
-        get { getAssociatedValue("tableViewObserverView", initialValue: nil) }
+        get { getAssociatedValue("tableViewObserverView") }
         set { setAssociatedValue(newValue, key: "tableViewObserverView") }
     }
     
     var isSelectedObservation: KeyValueObservation? {
-        get { getAssociatedValue("isSelectedObservation", initialValue: nil) }
+        get { getAssociatedValue("isSelectedObservation") }
         set { setAssociatedValue(newValue, key: "isSelectedObservation") }
     }
 }

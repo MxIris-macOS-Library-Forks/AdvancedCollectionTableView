@@ -58,10 +58,7 @@ extension CollectionViewDiffableDataSource {
         func collectionView(_: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath) -> NSPasteboardWriting? {
             // Swift.debugPrint("pasteboardWriterForItemAt")
             if canReorderItems || canDragOutside, let element = dataSource.element(for: indexPath) {
-                let pasteboardItem = NSPasteboardItem()
-                pasteboardItem.setString(String(element.id.hashValue), forType: .itemID)
-                pasteboardItem.contents = dataSource.draggingHandlers.pasteboardContent?(element) ?? []
-                return pasteboardItem
+                return NSPasteboardItem(for: element, content: dataSource.draggingHandlers.pasteboardContent?(element))
             }
             return nil
         }
@@ -95,33 +92,46 @@ extension CollectionViewDiffableDataSource {
             if proposedDropOperation.pointee == NSCollectionView.DropOperation.on {
                 proposedDropOperation.pointee = NSCollectionView.DropOperation.before
             }
+
             if let draggingSource = draggingInfo.draggingSource as? NSCollectionView, draggingSource == dataSource.collectionView {
-                return NSDragOperation.move
-            } else if !draggingInfo.contents.isEmpty {
-                return NSDragOperation.copy
+                var indexPaths = draggingIndexPaths.sorted()
+                if let last = indexPaths.last {
+                    indexPaths.append(IndexPath(item: last.item+1, section: last.section))
+                }
+                if indexPaths.contains(proposedIndexPath.pointee as IndexPath) {
+                    if draggingIndexPaths.sections.count == 1 {
+                        return []
+                    }
+                }
+                return .move
+            } else {
+                let content = draggingInfo.draggingPasteboard.content()
+                if !content.isEmpty, dataSource.droppingHandlers.canDrop?(content) != nil {
+                    return .copy
+                }
             }
             return []
         }
 
         func collectionView(_ collectionView: NSCollectionView, acceptDrop draggingInfo: NSDraggingInfo, indexPath: IndexPath, dropOperation _: NSCollectionView.DropOperation) -> Bool {
-            // debugPrint("acceptDrop")
             if let draggingSource = draggingInfo.draggingSource as? NSCollectionView, draggingSource == collectionView {
-                if canReorderItems, !draggingIndexPaths.isEmpty, let transaction = dataSource.movingTransaction(at: Array(draggingIndexPaths), to: indexPath) {
-                    let selectedItems = dataSource.selectedElements
+                if canReorderItems, !draggingIndexPaths.isEmpty {
+                    let elements = draggingIndexPaths.compactMap { dataSource.element(for: $0) }
+                    let transaction = dataSource.movingTransaction(for: elements, to: indexPath)
                     dataSource.reorderingHandlers.willReorder?(transaction)
                     dataSource.apply(transaction.finalSnapshot, dataSource.reorderingHandlers.animates ? .animated : .withoutAnimation)
-                    dataSource.selectElements(selectedItems, scrollPosition: [])
+                    dataSource.selectElements(elements, scrollPosition: [])
                     dataSource.reorderingHandlers.didReorder?(transaction)
                     return true
                 }
             }
             
-            let elements = dataSource.droppingHandlers.canDrop?(draggingInfo.contents) ?? []
+            let elements = dataSource.droppingHandlers.canDrop?(draggingInfo.draggingPasteboard.content()) ?? []
             if !elements.isEmpty {
                 var snapshot = dataSource.snapshot()
                 if let item = dataSource.element(for: indexPath) {
                     snapshot.insertItems(elements, beforeItem: item)
-                } else if let section = dataSource.section(at: indexPath) {
+                } else if let section = dataSource.sections[safe: indexPath.section] {
                     var indexPath = indexPath
                     indexPath.item -= 1
                     if let item = dataSource.element(for: indexPath) {
@@ -193,47 +203,5 @@ extension CollectionViewDiffableDataSource {
             let items = indexPaths.compactMap { self.dataSource.element(for: $0) }
             didChange(items, highlightState)
         }
-    }
-}
-
-class IdentifiablePasteboardItem<Element: Identifiable & Hashable>: NSPasteboardItem {
-    let element: Element
-    init(_ element: Element) {
-        self.element = element
-        super.init()
-        setString(String(element.id.hashValue), forType: .itemID)
-    }
-    
-    required init?(pasteboardPropertyList propertyList: Any, ofType type: NSPasteboard.PasteboardType) {
-        fatalError("init(pasteboardPropertyList:ofType:) has not been implemented")
-    }
-}
-
-extension NSPasteboardItem {
-    var contents: [PasteboardContent] {
-        get {
-            let contents: [PasteboardContent?] = [fileURL, url, tiffImage, color, string]
-            return contents.compactMap({ $0 })
-        }
-        set {
-            tiffImage = newValue.images.first
-            url = newValue.urls.first
-            fileURL = newValue.fileURLs.first
-            color = newValue.colors.first
-            string = newValue.strings.first
-        }
-    }
-}
-
-extension NSDraggingInfo {
-    var contents: [PasteboardContent] {
-        var contents: [PasteboardContent] = []
-        contents.append(contentsOf: fileURLs ?? [])
-        contents.append(contentsOf: urls ?? [])
-        contents.append(contentsOf: images ?? [])
-        contents.append(contentsOf: colors ?? [])
-        contents.append(contentsOf: strings ?? [])
-        contents.append(contentsOf: draggingPasteboard.pasteboardItems ?? [])
-        return contents
     }
 }
