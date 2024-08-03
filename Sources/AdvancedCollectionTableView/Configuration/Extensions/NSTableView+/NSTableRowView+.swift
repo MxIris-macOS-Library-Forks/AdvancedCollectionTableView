@@ -185,7 +185,17 @@ extension NSTableRowView {
         get { getAssociatedValue("isReordering") ?? false }
         set { 
             guard newValue != isReordering else { return }
+            cellViews.forEach({ $0.backgroundStyle = newValue ? .lowered : .emphasized })
             setAssociatedValue(newValue, key: "isReordering")
+            setNeedsAutomaticUpdateConfiguration(updateCells: true)
+        }
+    }
+    
+    @objc var isDropTarget: Bool {
+        get { getAssociatedValue("isDropTarget") ?? false }
+        set {
+            guard newValue != isDropTarget else { return }
+            setAssociatedValue(newValue, key: "isDropTarget")
             setNeedsAutomaticUpdateConfiguration(updateCells: true)
         }
     }

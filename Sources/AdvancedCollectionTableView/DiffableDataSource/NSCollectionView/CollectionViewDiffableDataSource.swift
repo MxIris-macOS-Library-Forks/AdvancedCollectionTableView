@@ -140,8 +140,8 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         if hoverHandlers.shouldObserve {
             collectionView.setupObservation()
             if hoveredItemObserver == nil {
-                hoveredItemObserver = collectionView.observeChanges(for: \.hoveredIndexPath, handler: { old, new in
-                    guard old != new else { return }
+                hoveredItemObserver = collectionView.observeChanges(for: \.hoveredIndexPath, handler: { [weak self] old, new in
+                    guard let self = self, old != new else { return }
                     if let didEndHovering = self.hoverHandlers.didEndHovering, let old = old, let item = self.element(for: old) {
                         didEndHovering(item)
                     }
@@ -157,6 +157,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
 
     func observeDisplayingItems() {
         if displayHandlers.shouldObserve {
+            collectionView.displayingItemsHandlers
             collectionView.enclosingScrollView?.contentView.postsBoundsChangedNotifications = true
             NotificationCenter.default.addObserver(self,
                                                    selector: #selector(scrollViewContentBoundsDidChange(_:)),
@@ -164,26 +165,23 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
                                                    object: collectionView.enclosingScrollView?.contentView)
         } else {
             collectionView.enclosingScrollView?.contentView.postsBoundsChangedNotifications = false
-            NotificationCenter.default.removeObserver(self)
+            NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: collectionView.enclosingScrollView?.contentView)
         }
     }
 
     @objc func scrollViewContentBoundsDidChange(_ notification: Notification) {
-        guard (notification.object as? NSClipView) != nil else { return }
         let displayingItems = displayingElements.ids
-
         if let isDisplaying = displayHandlers.isDisplaying {
-            let added = displayingItems.filter { previousDisplayingItems.contains($0) == false }
+            let added = displayingItems.filter { !previousDisplayingItems.contains($0) }
             let addedElements = elements[ids: added]
-            if addedElements.isEmpty == false {
+            if !addedElements.isEmpty {
                 isDisplaying(addedElements)
             }
         }
-
         if let didEndDisplaying = displayHandlers.didEndDisplaying {
-            let removed = previousDisplayingItems.filter { displayingItems.contains($0) == false }
+            let removed = previousDisplayingItems.filter { !displayingItems.contains($0) }
             let removedElements = elements[ids: removed]
-            if removedElements.isEmpty == false {
+            if !removedElements.isEmpty {
                 didEndDisplaying(removedElements)
             }
         }
@@ -499,22 +497,6 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         return sections.flatMap { currentSnapshot.itemIdentifiers(inSection: $0) }
     }
     
-    func movingTransaction(for elements: [Element], to indexPath: IndexPath) -> DiffableDataSourceTransaction<Section, Element> {
-        var newSnapshot = snapshot()
-        if let item = element(for: indexPath) {
-            newSnapshot.insertItemsSaftly(elements, beforeItem: item)
-        } else if let item = element(for: IndexPath(item: indexPath.item-1, section: indexPath.section)) {
-            newSnapshot.insertItemsSaftly(elements, afterItem: item)
-        } else if indexPath.item == 0, let section = sections[safe: indexPath.section-1] {
-            newSnapshot.appendItems(elements, toSection: section)
-        } else if let section = sections[safe: indexPath.section] {
-            newSnapshot.appendItems(elements, toSection: section)
-        } else if let section = sections.last {
-            newSnapshot.appendItems(elements, toSection: section)
-        }
-        return DiffableDataSourceTransaction(initial: currentSnapshot, final: newSnapshot)
-    }
-
     // MARK: - Sections
 
     /// All current sections in the collection view.
@@ -547,6 +529,42 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         guard let index = index(for: section) else { return }
         let indexPaths = Set([IndexPath(item: 0, section: index)])
         collectionView.scrollToItems(at: indexPaths, scrollPosition: scrollPosition)
+    }
+    
+    // MARK: - Transactions
+    
+    func moveTransaction(_ elements: [Element], to indexPath: IndexPath) -> DiffableDataSourceTransaction<Section, Element> {
+        var newSnapshot = snapshot()
+        if let item = element(for: indexPath) {
+            newSnapshot.insertItemsSaftly(elements, beforeItem: item)
+        } else if let item = element(for: IndexPath(item: indexPath.item-1, section: indexPath.section)) {
+            newSnapshot.insertItemsSaftly(elements, afterItem: item)
+        } else if indexPath.item == 0, let section = sections[safe: indexPath.section-1] {
+            newSnapshot.appendItems(elements, toSection: section)
+        } else if let section = sections[safe: indexPath.section] {
+            newSnapshot.appendItems(elements, toSection: section)
+        } else if let section = sections.last {
+            newSnapshot.appendItems(elements, toSection: section)
+        }
+        return DiffableDataSourceTransaction(initial: currentSnapshot, final: newSnapshot)
+    }
+    
+    func dropTransaction(_ elements: [Element], indexPath: IndexPath) -> DiffableDataSourceTransaction<Section, Element> {
+        var snapshot = currentSnapshot
+        if let item = element(for: indexPath) {
+            snapshot.insertItems(elements, beforeItem: item)
+        } else if let section = sections[safe: indexPath.section] {
+            var indexPath = indexPath
+            indexPath.item -= 1
+            if let item = element(for: indexPath) {
+                snapshot.insertItems(elements, afterItem: item)
+            } else {
+                snapshot.appendItems(elements, toSection: section)
+            }
+        } else if let section = sections.last {
+            snapshot.appendItems(elements, toSection: section)
+        }
+        return DiffableDataSourceTransaction(initial: currentSnapshot, final: snapshot)
     }
     
     // MARK: - Empty Collection View
@@ -819,17 +837,21 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
          */
         public var didReorder: ((_ transaction: DiffableDataSourceTransaction<Section, Element>) -> Void)?
         
-        /// The handler that determines if elements can be inserted to another element. The default value is `nil` which indicates that elements can't be inserted.
-        public var canInsert: ((_ elements: [Element], _ target: Element) -> Bool)?
+        /**
+         The handler that determines if elements can be dropped to another element while reordering. The default value is `nil` which indicates that elements can't be inserted.
+         
+         To enable dropping of elements to another element while reordering, you also have  to provide ``didDrop``.
+         */
+        public var canDrop: ((_ elements: [Element], _ target: Element) -> Bool)?
         
-        /// The handler that that gets called after inserting elements.
-        public var didInsert: ((_ elements: [Element], _ target: Element) -> ())?
+        /// The handler that that gets called after dropping elements.
+        public var didDrop: ((_ elements: [Element], _ target: Element) -> ())?
         
         /// A Boolean value that indicates whether reordering elements is animated.
         public var animates: Bool = true
         
-        var insertable: Bool {
-            didReorder != nil && didInsert != nil
+        var droppable: Bool {
+            canDrop != nil && didDrop != nil
         }
     }
 
@@ -900,10 +922,6 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         public var didDrop: ((_ transaction: DiffableDataSourceTransaction<Section, Element>) -> ())?
         /// A Boolean value that indicates whether dropping elements is animated.
         public var animates: Bool = true
-        
-        var needsTransaction: Bool {
-            willDrop != nil || didDrop != nil
-        }
     }
 }
 

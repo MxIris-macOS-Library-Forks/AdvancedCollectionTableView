@@ -58,11 +58,11 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
     var badgeView: BadgeView?
     var topAccesoryViews: [AccessoryView] = []
     var bottomAccesoryViews: [AccessoryView] = []
+    var boundsWidth: CGFloat = 0.0
+    var stackViewConstraints: [NSLayoutConstraint] = []
 
     lazy var textStackView = NSStackView(views: [textField, secondaryTextField]).orientation(.vertical).alignment(.leading)
     lazy var imageTextStackView = NSStackView(views: [imageView, textStackView]).orientation(.horizontal).distribution(.fill)
-    // lazy var stackView = NSStackView(views: [imageView, textStackView]).orientation(.horizontal).distribution(.fill)
-    var stackViewConstraints: [NSLayoutConstraint] = []
     lazy var badgeStackView = NSStackView(views: [imageTextStackView]).orientation(.horizontal).distribution(.fill).alignment(.centerY)
 
     var isEditing: Bool = false {
@@ -72,17 +72,17 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
                 tableCellView.setNeedsAutomaticUpdateConfiguration()
             } else if let tableRowView = tableRowView, tableRowView.contentView == self {
                 tableRowView.setNeedsAutomaticUpdateConfiguration()
-            } else if let collectionViewItem = collectionViewItem, collectionViewItem.view == self {
+            } else if let collectionViewItem = collectionViewItem {
                 collectionViewItem.setNeedsAutomaticUpdateConfiguration()
             }
-            if !isEditing {
-                updateTableRowHeight()
-            }
+            // textField.preferredMaxLayoutWidth = isEditing ? bounds.width-34 : 0
+            // secondaryTextField.preferredMaxLayoutWidth = isEditing ? bounds.width-34 : 0
+            // updateTableRowHeight()
         }
     }
 
     var tableCellView: NSTableCellView? {
-        firstSuperview(for: NSTableCellView.self)
+        superview as? NSTableCellView
     }
 
     var tableRowView: NSTableRowView? {
@@ -90,7 +90,7 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
     }
 
     var collectionViewItem: NSCollectionViewItem? {
-        firstSuperview(where: { $0.parentController is NSCollectionViewItem })?.parentController as? NSCollectionViewItem
+        parentController as? NSCollectionViewItem
     }
 
     func updateConfiguration() {
@@ -297,13 +297,15 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
         super.layout()
         guard bounds.width != boundsWidth else { return }
         boundsWidth = bounds.width
-        textField.preferredMaxLayoutWidth = (boundsWidth - 34).clamped(min: 0)
-        secondaryTextField.preferredMaxLayoutWidth = textField.preferredMaxLayoutWidth
+        if isEditing {
+            // textField.preferredMaxLayoutWidth = (boundsWidth - 34).clamped(min: 0)
+            // secondaryTextField.preferredMaxLayoutWidth = textField.preferredMaxLayoutWidth
+        }
         updateTableRowHeight()
     }
     
-    var boundsWidth: CGFloat = 0.0
     func updateTableRowHeight() {
+        let fittingSize = fittingSize
         if frame.size.height > fittingSize.height {
             tableRowView?.frame.size.height = fittingSize.height
         }
