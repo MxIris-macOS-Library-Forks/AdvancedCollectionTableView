@@ -553,6 +553,22 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
     
     open func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
         columnHandlers.sortDescriptorsChanged?(oldDescriptors, tableView.sortDescriptors)
+        
+        guard let sortDescriptor = tableView.sortDescriptors.first as? ItemSortDescriptor else { return }
+        sortDescriptor.itemSortings.editEach({$0.ascending = sortDescriptor.ascending})
+        var sortingChanged = false
+        var snapshot = emptySnapshot()
+        snapshot.appendSections(sections)
+        for section in sections {
+            let items = currentSnapshot.itemIdentifiers(inSection: section)
+            let sorted = items.sorted(by: sortDescriptor.itemSortings.compactMap({$0.elementSorting}))
+            snapshot.appendItems(sorted, toSection: section)
+            if !sortingChanged, items != sorted {
+                sortingChanged = true
+            }
+        }
+        guard sortingChanged else { return }
+        apply(snapshot, .withoutAnimation)
     }
         
     // MARK: - Items
@@ -754,7 +770,6 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         didSet {
             guard oldValue != emptyView else { return }
             oldValue?.removeFromSuperview()
-            scrollViewContentViewObservation = nil
             if emptyView != nil {
                 emptyContentConfiguration = nil
                 updateEmptyView()
@@ -768,24 +783,25 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
      When using this property, ``emptyView`` is set to `nil`.
      */
     open var emptyContentConfiguration: NSContentConfiguration? {
-        get { emptyContentView?.contentConfiguration }
+        get { emptyContentView?.configuration }
         set {
             if let configuration = newValue {
-                if let emptyContentView = self.emptyContentView {
-                    emptyContentView.contentConfiguration = configuration
+                if let emptyContentView = self.emptyContentView, emptyContentView.supports(configuration) {
+                    emptyContentView.configuration = configuration
                 } else {
-                    emptyContentView = .init(configuration: configuration)
+                    emptyContentView?.removeFromSuperview()
+                    emptyContentView = configuration.makeContentView()
                 }
                 emptyView = nil
                 updateEmptyView()
             } else {
-                scrollViewContentViewObservation = nil
+                emptyContentView?.removeFromSuperview()
                 emptyContentView = nil
             }
         }
     }
     
-    var emptyContentView: ContentConfigurationView?
+    var emptyContentView: (NSView & NSContentView)?
     
     /**
      The handler that gets called when the data source switches between an empty and non-empty snapshot or viceversa.
@@ -799,14 +815,11 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
             emptyHandler?(currentSnapshot.isEmpty)
         }
     }
-    
-    var scrollViewContentViewObservation: KeyValueObservation?
-    
+        
     func updateEmptyView(previousIsEmpty: Bool? = nil) {
         if !currentSnapshot.isEmpty {
             emptyView?.removeFromSuperview()
             emptyContentView?.removeFromSuperview()
-            scrollViewContentViewObservation = nil
         } else if let emptyView = emptyView ?? emptyContentView, emptyView.superview != tableView?.enclosingScrollView ?? tableView {
             (tableView?.enclosingScrollView ?? tableView)?.addSubview(withConstraint: emptyView)
         }
