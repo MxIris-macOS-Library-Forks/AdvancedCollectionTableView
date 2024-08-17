@@ -9,8 +9,16 @@ import AppKit
 import FZSwiftUtils
 import FZUIKit
 
-/// A content view for displaying list-based content.
-open class NSListContentView: NSView, NSContentView, EdiitingContentView {
+/**
+ A content view for displaying list-based item content.
+ 
+ You use a list content view for displaying list-based content in a custom view hierarchy. You can embed a list content view manually in a custom cell or in a container view, like a `NSStackView`. You can use Auto Layout or manual layout techniques to size and position the view, and its height adjusts dynamically according to its width and the space it needs to display its content.
+ 
+ A list content view relies on its list content configuration to supply its styling and content. You create a list content view by passing in a ``NSListContentConfiguration`` to ``init(configuration:)``. To update the content view, you set a new configuration on it through its ``configuration`` property.
+ 
+ If you’re using a `NSTableView` or `NSCollectionView`, you don’t need to manually create a list content view to take advantage of the list configuration. Instead, you assign a ``NSListContentConfiguration`` to the ``AppKit/NSTableCellView/contentConfiguration`` property of the table view cells or collection view items.
+ */
+open class NSListContentView: NSView, NSContentView, EditingContentView {
     
     /// Creates a list content view with the specified content configuration.
     public init(configuration: NSListContentConfiguration) {
@@ -126,7 +134,7 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
             badgeStackView.spacing = 0
         }
         
-        imageView.calculatedSize = calculateImageViewSize()
+        imageView.calculatedSize = calculateImageViewSize(appliedConfiguration.imageProperties.sizing)
         
         switch appliedConfiguration.imageProperties.position {
         case let .leading(value), let .trailing(value):
@@ -189,74 +197,41 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
         }
     }
     
-    func calculateImageViewSize() -> CGSize? {
+    func calculateImageViewSize(_ sizing: NSListContentConfiguration.ImageProperties.Sizing) -> CGSize? {
         guard let image = appliedConfiguration.image, !image.isSymbolImage else { return nil }
         var imageSize = image.size
-        switch appliedConfiguration.imageProperties.sizing {
+        switch sizing {
         case .firstTextHeight:
-            if appliedConfiguration.hasText {
-                return scaleImageSize(imageSize, to: textField.intrinsicContentSize)
-            } else if appliedConfiguration.hasSecondaryText {
-                return scaleImageSize(imageSize, to: secondaryTextField.intrinsicContentSize)
-            } else {
-                let width = frame.size.width - appliedConfiguration.margins.width
-                if imageSize.width > width {
-                    imageSize = imageSize.scaled(toWidth: width)
+            if appliedConfiguration.imageProperties.position.orientation == .horizontal {
+                if appliedConfiguration.hasText {
+                    return imageSize.scaled(toHeight: textField.intrinsicContentSize.height)
+                } else if appliedConfiguration.hasSecondaryText {
+                    return imageSize.scaled(toHeight: secondaryTextField.intrinsicContentSize.height)
                 }
-                return imageSize
             }
+            return calculateImageViewSize(.relative(1.0))
         case .totalTextHeight:
-            if appliedConfiguration.hasText, appliedConfiguration.hasSecondaryText {
-                var size = textField.intrinsicContentSize
-                size.height += secondaryTextField.intrinsicContentSize.height
-                size.height += appliedConfiguration.textToSecondaryTextPadding
-                return scaleImageSize(imageSize, to: size)
-            } else if appliedConfiguration.hasText {
-                return scaleImageSize(imageSize, to: textField.intrinsicContentSize)
-            } else if appliedConfiguration.hasSecondaryText {
-                return scaleImageSize(imageSize, to: secondaryTextField.intrinsicContentSize)
-            } else {
-                let width = frame.size.width - appliedConfiguration.margins.width
-                if imageSize.width > width {
-                    imageSize = imageSize.scaled(toWidth: width)
-                }
-                return imageSize
+            if appliedConfiguration.imageProperties.position.orientation == .horizontal, appliedConfiguration.hasText, appliedConfiguration.hasSecondaryText {
+                let height = textField.intrinsicContentSize.height + secondaryTextField.intrinsicContentSize.height + appliedConfiguration.textToSecondaryTextPadding
+                return imageSize.scaled(toHeight: height)
             }
+            return calculateImageViewSize(.firstTextHeight)
         case let .size(size):
-            var size = size
-            let width = frame.size.width - appliedConfiguration.margins.width
-            if size.width > width {
-                size = size.scaled(toWidth: width)
-            }
             return size
         case let .maxiumSize(width: maxWidth, height: maxHeight):
-            if let maxWidth = maxWidth, imageSize.width > maxWidth, let maxHeight = maxHeight, imageSize.height > maxHeight {
-                imageSize = imageSize.scaled(toFit: CGSize(maxWidth, maxHeight))
-            } else if let maxWidth = maxWidth, imageSize.width > maxWidth {
-                imageSize = imageSize.scaled(toWidth: maxWidth)
-            } else if let maxHeight = maxHeight, imageSize.height > maxHeight {
-                imageSize = imageSize.scaled(toHeight: maxHeight)
-            }
-            let width = frame.size.width - appliedConfiguration.margins.width
-            if imageSize.width > width {
-                imageSize = imageSize.scaled(toWidth: width)
-            }
-            return imageSize
-        case let .maxiumSizeRelative(width: relativeWidth, height: relativeHeight):
-            let width = bounds.width - appliedConfiguration.margins.width
-            if let relativeWidth = relativeWidth, let relativeHeight = relativeHeight {
-                imageSize = imageSize.scaled(toFit: CGSize(width * relativeWidth, bounds.width * relativeHeight))
-            } else if let relativeWidth = relativeWidth {
-                imageSize = imageSize.scaled(toWidth: width * relativeWidth)
-            } else if let relativeHeight = relativeHeight {
-                imageSize = imageSize.scaled(toHeight: width * relativeHeight)
+            let maxWidth = maxWidth ?? imageSize.width
+            let maxHeight = maxHeight ?? imageSize.height
+            return imageSize.scaled(toFit: CGSize(maxWidth, maxHeight))
+        case let .relative(relative):
+            if appliedConfiguration.imageProperties.position.orientation == .vertical || !appliedConfiguration.hasText && !appliedConfiguration.hasSecondaryText {
+                let width = bounds.width - appliedConfiguration.margins.width
+                imageSize = imageSize.scaled(toWidth: width * relative)
+            } else {
+                let height = bounds.height - appliedConfiguration.margins.height
+                imageSize = imageSize.scaled(toHeight: height * relative)
             }
             return imageSize
-        default:
-            let width = frame.size.width - appliedConfiguration.margins.width
-            if imageSize.width > width {
-                imageSize = imageSize.scaled(toWidth: width)
-            }
+        case .none:
             return imageSize
         }
     }
