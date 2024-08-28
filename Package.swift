@@ -15,9 +15,9 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/flocked/FZSwiftUtils.git", branch: "main"),
-        .package(url: "https://github.com/flocked/FZUIKit.git", branch: "main"),
-        .package(url: "https://github.com/flocked/FZQuicklook.git", branch: "main"),
+        .package(url: "https://github.com/MxIris-Library-Forks/FZSwiftUtils.git", branch: "stable"),
+        .package(url: "https://github.com/MxIris-macOS-Library-Forks/FZUIKit.git", branch: "stable"),
+        .package(url: "https://github.com/MxIris-macOS-Library-Forks/FZQuicklook.git", branch: "main"),
     ],
     targets: [
         .target(
