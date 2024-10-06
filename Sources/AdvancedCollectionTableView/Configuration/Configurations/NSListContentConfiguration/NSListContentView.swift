@@ -238,11 +238,6 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
                     return imageSize
                 }
             case let .size(size):
-                var size = size
-                let width = frame.size.width - appliedConfiguration.margins.width
-                if size.width > width {
-                    size = size.scaled(toWidth: width)
-                }
                 return size
             case let .maxiumSize(width: maxWidth, height: maxHeight):
                 if let maxWidth = maxWidth, imageSize.width > maxWidth, let maxHeight = maxHeight, imageSize.height > maxHeight {
