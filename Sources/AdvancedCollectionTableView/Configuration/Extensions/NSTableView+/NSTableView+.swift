@@ -61,7 +61,7 @@ extension NSTableView {
     }
 
     var hoveredRowView: NSTableRowView? {
-        if let hoveredRow = hoveredRow, let rowView = rowView(atRow: hoveredRow.item, makeIfNecessary: false) {
+        if let hoveredRow = hoveredRow, hoveredRow.item < numberOfRows, let rowView = rowView(atRow: hoveredRow.item, makeIfNecessary: false) {
             return rowView
         }
         return nil
