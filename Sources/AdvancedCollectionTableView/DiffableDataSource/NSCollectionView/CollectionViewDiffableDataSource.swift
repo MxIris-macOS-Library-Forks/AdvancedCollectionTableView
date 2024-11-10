@@ -115,8 +115,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
             if rightClickHandler != nil {
                 collectionView.mouseHandlers.rightDown = { [weak self] event in
                     guard let self = self, let handler = self.rightClickHandler else { return }
-                    let location = event.location(in: self.collectionView)
-                    handler(self.elements(for: location))
+                    handler(self.collectionView.rightClickIndexPaths(for: event).compactMap({ self.element(for:$0) }))
                 }
             } else {
                 collectionView.mouseHandlers.rightDown = nil
