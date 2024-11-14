@@ -45,7 +45,11 @@ extension TableViewDiffableDataSource {
 
         public func tableView(_ tableView: NSTableView, selectionIndexesForProposedSelection proposedSelectionIndexes: IndexSet) -> IndexSet {
             var proposedSelectionIndexes = proposedSelectionIndexes
+            let isEmpty = proposedSelectionIndexes.isEmpty
             dataSource.sectionRowIndexes.forEach { proposedSelectionIndexes.remove($0) }
+            if !isEmpty, proposedSelectionIndexes.isEmpty {
+                return dataSource.tableView.selectedRowIndexes
+            }
             guard dataSource.selectionHandlers.shouldSelect != nil || dataSource.selectionHandlers.shouldDeselect != nil else {
                 return proposedSelectionIndexes
             }
