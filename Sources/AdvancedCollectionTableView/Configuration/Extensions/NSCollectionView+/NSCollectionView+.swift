@@ -10,6 +10,7 @@ import FZSwiftUtils
 import FZUIKit
 
 extension NSCollectionView {
+    /// The index path of the item that is hovered by the mouse.
     @objc dynamic var hoveredIndexPath: IndexPath? {
         get { getAssociatedValue("hoveredIndexPath") }
         set {
@@ -19,21 +20,19 @@ extension NSCollectionView {
         }
     }
     
+    /// The item that is hovered by the mouse.
     var hoveredItem: NSCollectionViewItem? {
         guard let indexPath = hoveredIndexPath else { return nil }
         return item(at: indexPath)
     }
     
     func setupObservation(shouldObserve: Bool = true) {
-        /*
-        Swift.print("AddingObserverView",observerView == nil, subviews(type: ObserverView.self).count, subviews.indexes(where: {$0 is ObserverView}))
         if !shouldObserve {
             observerView?.removeFromSuperview()
             observerView = nil
         } else if observerView == nil {
             observerView = ObserverView(for: self)
         }
-         */
     }
     
     var observerView: ObserverView? {
@@ -59,12 +58,12 @@ extension NSCollectionView {
         weak var collectionView: NSCollectionView?
         
         init(for collectionView: NSCollectionView) {
-            self.collectionView = collectionView
             super.init(frame: .zero)
-            updateTrackingAreas()
+            self.collectionView = collectionView
             collectionView.addSubview(withConstraint: self)
-            self.zPosition = -1000
-            self.sendToBack()
+            zPosition = -CGFloat.greatestFiniteMagnitude
+            sendToBack()
+            updateTrackingAreas()
         }
         
         required init?(coder: NSCoder) {
@@ -77,13 +76,15 @@ extension NSCollectionView {
         }
         
         override func mouseEntered(with event: NSEvent) {
-            super.mouseEntered(with: event)
             updateHoveredItem(for: event)
         }
         
         override func mouseMoved(with event: NSEvent) {
-            super.mouseMoved(with: event)
             updateHoveredItem(for: event)
+        }
+        
+        override func mouseExited(with event: NSEvent) {
+            collectionView?.hoveredIndexPath = nil
         }
         
         func updateHoveredItem(for event: NSEvent) {
@@ -100,12 +101,7 @@ extension NSCollectionView {
         }
         
         override func hitTest(_ point: NSPoint) -> NSView? {
-            return collectionView?.hitTest(point)
-        }
-        
-        override func mouseExited(with event: NSEvent) {
-            super.mouseExited(with: event)
-            collectionView?.hoveredIndexPath = nil
+            return nil
         }
         
         override func viewWillMove(toWindow newWindow: NSWindow?) {
