@@ -10,13 +10,6 @@ import FZSwiftUtils
 import FZUIKit
 
 extension NSCollectionViewItem {
-    /// Instantiates a view for the item.
-    override open func loadView() {
-        view = NSView()
-    }
-}
-
-extension NSCollectionViewItem {
     // MARK: Configuring the background
 
     /**
@@ -324,7 +317,7 @@ extension NSCollectionViewItem {
     }
     
     /// A Boolean value that indicates whether the collection view and it's items are focused.
-    @objc var isCollectionVewFocused: Bool {
+    @objc var isCollectionViewFocused: Bool {
         _collectionView?.isFirstResponder ?? false
     }
     
