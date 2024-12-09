@@ -30,9 +30,10 @@ class ListItemTextField: NSTextField, NSTextFieldDelegate {
     }
     
     var tableCollectionView: NSView? {
-        guard let editingContentView = editingContentView else { return nil }
-        let isTable = editingContentView.superview is NSTableCellView
-        return editingContentView.firstSuperview(for: isTable ? NSTableView.self : NSCollectionView.self)
+        if editingContentView?.superview is NSCollectionView {
+            return editingContentView?.superview
+        }
+        return firstSuperview(for: NSTableView.self)
     }
 
     func updateText(_ text: String?, _ attributedString: AttributedString?, _ placeholder: String? = nil, _ attributedPlaceholder: AttributedString? = nil) {
@@ -76,8 +77,6 @@ class ListItemTextField: NSTextField, NSTextFieldDelegate {
         var intrinsicContentSize = super.intrinsicContentSize
         if alignment != .left, editingContentView is NSListContentView {
             intrinsicContentSize.width = NSView.noIntrinsicMetric
-        } else if alignment != .center, editingContentView is NSItemContentView{
-            intrinsicContentSize.width = NSView.noIntrinsicMetric
         }
         
         if preferredMaxLayoutWidth != 0 {
@@ -105,7 +104,6 @@ class ListItemTextField: NSTextField, NSTextFieldDelegate {
             previousStringValue = isEditing ? stringValue : ""
             editingString = previousStringValue
             focusRingType = isEditing ? .none : .default
-            editingContentView?.isEditing = isEditing
         }
     }
     

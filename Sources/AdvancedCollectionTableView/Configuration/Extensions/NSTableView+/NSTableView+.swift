@@ -42,6 +42,22 @@ extension NSTableView {
         set { setAssociatedValue(newValue, key: "tableViewObserverView") }
     }
     
+    var editingView: NSView? {
+        observerView?.editingView
+    }
+    
+    var activeState: NSListConfigurationState.ActiveState {
+        isActive ? isFocused ? .focused : .active : .inactive
+    }
+    
+    var isFocused: Bool {
+        observerView?.isFocused == true
+    }
+    
+    var isActive: Bool {
+        window?.isKeyWindow == true
+    }
+    
     class ObserverView: NSView {
         var tokens: [NotificationToken] = []
         lazy var trackingArea = TrackingArea(for: self, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow])
@@ -51,14 +67,14 @@ extension NSTableView {
         var isFocused: Bool = false {
             didSet {
                 guard oldValue != isFocused else { return }
-                Swift.print("TableView isFocused", isFocused)
-                // tableView?.visibleRows().forEach { $0.setNeedsAutomaticUpdateConfiguration() }
+                tableView?.visibleRows().forEach { $0.setNeedsAutomaticUpdateConfiguration() }
             }
         }
         weak var editingView: NSView? {
             didSet {
                 guard oldValue != editingView else { return }
-                Swift.print("TableView isEditing", editingView ?? "nil")
+                oldValue?.firstSuperview(for: NSTableRowView.self)?.setNeedsAutomaticUpdateConfiguration()
+                editingView?.firstSuperview(for: NSTableRowView.self)?.setNeedsAutomaticUpdateConfiguration()
             }
         }
         

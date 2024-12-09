@@ -70,6 +70,10 @@ open class NSItemContentView: NSView, NSContentView, EditingContentView {
     let textField = ListItemTextField.wrapping().truncatesLastVisibleLine(true)
     let secondaryTextField = ListItemTextField.wrapping().truncatesLastVisibleLine(true)
     lazy var contentView = ItemContentView(configuration: appliedConfiguration)
+    var textFieldAlignment: NSTextAlignment?
+    var secondaryTextFieldAlignment: NSTextAlignment?
+    var textFieldConstraint: NSLayoutConstraint?
+    var secondaryTextFieldConstraint: NSLayoutConstraint?
 
     lazy var textStackView = NSStackView(views: [textField, secondaryTextField]).orientation(.vertical).alignment(.leading).spacing(appliedConfiguration.textToSecondaryTextPadding)
 
@@ -94,19 +98,6 @@ open class NSItemContentView: NSView, NSContentView, EditingContentView {
         }
     }
 
-    var isEditing: Bool = false {
-        didSet {
-            guard oldValue != isEditing else { return }
-            if let collectionViewItem = collectionViewItem, collectionViewItem.view == self {
-                collectionViewItem.setNeedsAutomaticUpdateConfiguration()
-            } else if let tableCellView = tableCellView, tableCellView.contentView == self {
-                tableCellView.setNeedsAutomaticUpdateConfiguration()
-            } else if let tableRowView = tableRowView, tableRowView.contentView == self {
-                tableRowView.setNeedsAutomaticUpdateConfiguration()
-            }
-        }
-    }
-
     var tableCellView: NSTableCellView? {
         firstSuperview(for: NSTableCellView.self)
     }
@@ -128,7 +119,6 @@ open class NSItemContentView: NSView, NSContentView, EditingContentView {
         secondaryTextField.updateText(appliedConfiguration.secondaryText, appliedConfiguration.secondaryAttributedText, appliedConfiguration.secondaryPlaceholderText, appliedConfiguration.secondaryAttributedPlaceholderText)
         textField.isEnabled = firstSuperview(for: NSCollectionView.self)?.isEnabled ?? true
         secondaryTextField.isEnabled = textField.isEnabled
-
         if appliedConfiguration.scaleTransform != _scaleTransform {
             _scaleTransform = appliedConfiguration.scaleTransform
             scale = _scaleTransform
@@ -137,6 +127,7 @@ open class NSItemContentView: NSView, NSContentView, EditingContentView {
             _rotation = appliedConfiguration.rotation
             rotation = _rotation
         }
+        
         contentView.configuration = appliedConfiguration
         textStackView.spacing = appliedConfiguration.textToSecondaryTextPadding
         stackView.spacing = appliedConfiguration.contentToTextPadding
@@ -154,6 +145,33 @@ open class NSItemContentView: NSView, NSContentView, EditingContentView {
         }
         toolTip = appliedConfiguration.toolTip
         contentView.invalidateIntrinsicContentSize()
+        textField.drawsBackground = true
+        
+        if textFieldAlignment != appliedConfiguration.textProperties.alignment {
+            textFieldAlignment = appliedConfiguration.textProperties.alignment
+            textFieldConstraint?.activate(false)
+            switch appliedConfiguration.textProperties.alignment {
+            case .center:
+                textFieldConstraint = textField.centerXAnchor.constraint(equalTo: stackView.centerXAnchor).activate()
+            case .right:
+                textFieldConstraint = textField.rightAnchor.constraint(equalTo: stackView.rightAnchor).activate()
+            default:
+                textFieldConstraint = textField.leftAnchor.constraint(equalTo: stackView.leftAnchor).activate()
+            }
+        }
+        
+        if secondaryTextFieldAlignment != appliedConfiguration.secondaryTextProperties.alignment {
+            secondaryTextFieldAlignment = appliedConfiguration.secondaryTextProperties.alignment
+            secondaryTextFieldConstraint?.activate(false)
+            switch appliedConfiguration.secondaryTextProperties.alignment {
+            case .center:
+                secondaryTextFieldConstraint = secondaryTextField.centerXAnchor.constraint(equalTo: stackView.centerXAnchor).activate()
+            case .right:
+                secondaryTextFieldConstraint = secondaryTextField.rightAnchor.constraint(equalTo: stackView.rightAnchor).activate()
+            default:
+                secondaryTextFieldConstraint = secondaryTextField.leftAnchor.constraint(equalTo: stackView.leftAnchor).activate()
+            }
+        }
     }
 }
 
@@ -161,7 +179,7 @@ extension NSItemContentView {
     func calculateContentViewFrame(remaining: CGRect) -> CGRect {
         var frame = remaining
         if let imageSize = appliedConfiguration.image?.size {
-            switch appliedConfiguration.contentProperties.imageProperties.scaling {
+            switch appliedConfiguration.imageProperties.scaling {
             case .fit:
                 frame.size = imageSize.scaled(toHeight: remaining.height)
             case .fill, .resize:
@@ -200,7 +218,7 @@ extension NSItemContentView {
         let contentRegion = bounds.inset(by: appliedConfiguration.margins)
         var remainingRegion = contentRegion
         if appliedConfiguration.hasContent {
-            if let imageSize = appliedConfiguration.image?.size, appliedConfiguration.contentProperties.imageProperties.scaling == .fit {
+            if let imageSize = appliedConfiguration.image?.size, appliedConfiguration.imageProperties.scaling == .fit {
                 let resized = imageSize.scaled(toHeight: remainingRegion.height)
                 let contentRectArea = remainingRegion.divided(atDistance: resized.width, from: .minXEdge)
                 remainingRegion = contentRectArea.remainder
@@ -233,7 +251,7 @@ extension NSItemContentView {
             }
         }
         if appliedConfiguration.hasContent {
-            if let imageSize = appliedConfiguration.image?.size, appliedConfiguration.contentProperties.imageProperties.scaling == .fit {
+            if let imageSize = appliedConfiguration.image?.size, appliedConfiguration.imageProperties.scaling == .fit {
                 var contentRect: CGRect = .zero
                 contentRect.size = imageSize.scaled(toHeight: remainingRegion.height)
                 contentRect.center = remainingRegion.center

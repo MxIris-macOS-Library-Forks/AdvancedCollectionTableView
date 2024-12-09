@@ -29,7 +29,7 @@ open class NSListContentView: NSView, NSContentView, EditingContentView {
         imageTextStackView.translatesAutoresizingMaskIntoConstraints = false
         badgeStackView.translatesAutoresizingMaskIntoConstraints = false
         stackViewConstraints = addSubview(withConstraint: badgeStackView)
-        
+
         updateConfiguration()
     }
     
@@ -69,22 +69,7 @@ open class NSListContentView: NSView, NSContentView, EditingContentView {
     lazy var imageTextStackView = NSStackView(views: [imageView, textStackView]).orientation(.horizontal).distribution(.fill)
     lazy var badgeStackView = NSStackView(views: [imageTextStackView]).orientation(.horizontal).distribution(.fill).alignment(.centerY)
     var stackViewConstraints: [NSLayoutConstraint] = []
-    
-    var isEditing: Bool = false {
-        didSet {
-            guard oldValue != isEditing else { return }
-            if let tableCellView = tableCellView, tableCellView.contentView == self {
-                tableCellView.setNeedsAutomaticUpdateConfiguration()
-            } else if let tableRowView = tableRowView, tableRowView.contentView == self {
-                tableRowView.setNeedsAutomaticUpdateConfiguration()
-            } else if let collectionViewItem = collectionViewItem {
-                collectionViewItem.setNeedsAutomaticUpdateConfiguration()
-            }
-            // textField.preferredMaxLayoutWidth = isEditing ? bounds.width-34 : 0
-            // secondaryTextField.preferredMaxLayoutWidth = isEditing ? bounds.width-34 : 0
-        }
-    }
-    
+        
     var tableCellView: NSTableCellView? {
         superview as? NSTableCellView
     }
@@ -100,7 +85,7 @@ open class NSListContentView: NSView, NSContentView, EditingContentView {
     func updateConfiguration() {
         toolTip = appliedConfiguration.toolTip
         imageView.verticalConstraint?.activate(false)
-        
+                
         textField.isEnabled = appliedConfiguration.isEnabled
         textField.properties = appliedConfiguration.textProperties
         textField.updateText(appliedConfiguration.text, appliedConfiguration.attributedText, appliedConfiguration.placeholderText, appliedConfiguration.attributedPlaceholderText)
@@ -122,8 +107,10 @@ open class NSListContentView: NSView, NSContentView, EditingContentView {
         if let badge = appliedConfiguration.badge, appliedConfiguration.imageProperties.position.orientation == .horizontal {
             badgeStackView.spacing = appliedConfiguration.textToBadgePadding
             badgeStackView.alignment = badge.alignment.alignment
+
             if badgeView == nil {
                 badgeView = BadgeView(properties: badge)
+                badgeStackView.addArrangedSubview(badgeView!)
             }
             guard let badgeView = badgeView else { return }
             badgeView.properties = badge
