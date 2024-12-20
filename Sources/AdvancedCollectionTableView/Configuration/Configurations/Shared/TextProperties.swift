@@ -282,10 +282,19 @@ extension NSTextField {
      - Parameter properties:The configuration for configurating the text field.
      */
     func configurate(using properties: TextProperties) {
+        let isAnimating = NSAnimationContext.hasActiveGrouping && NSAnimationContext.current.duration > 0.0
+        
         maximumNumberOfLines = properties.maximumNumberOfLines
-        textColor = properties.resolvedColor()
         lineBreakMode = properties.lineBreakMode
+        animator(isAnimating).textColor = properties.resolvedColor()
         font = properties.font
+        /*
+        if isAnimating, font?.onlySizeChanged(from: properties.font) == true {
+            animator(isAnimating).fontSize = properties.font.pointSize
+        } else {
+            font = properties.font
+        }
+         */
         alignment = properties.alignment
         isEditable = properties.isEditable
         isSelectable = properties.isSelectable
@@ -297,6 +306,12 @@ extension NSTextField {
         bezelStyle = properties.bezel.type
         isBezeled = properties.bezel.isBezeled
         isBordered = properties.bezel.isBezeled
+    }
+}
+
+extension NSFont {
+    func onlySizeChanged(from font: NSFont) -> Bool {
+        return (fontName == font.fontName && fontDescriptor.symbolicTraits == font.fontDescriptor.symbolicTraits && fontDescriptor.weight == font.fontDescriptor.weight) && pointSize != font.pointSize
     }
 }
 

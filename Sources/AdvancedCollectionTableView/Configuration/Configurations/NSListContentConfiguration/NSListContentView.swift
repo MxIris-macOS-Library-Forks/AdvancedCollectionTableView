@@ -12,11 +12,11 @@ import FZUIKit
 /**
  A content view for displaying list-based item content.
  
- You use a list content view for displaying list-based content in a custom view hierarchy. You can embed a list content view manually in a custom cell or in a container view, like a `NSStackView`. You can use Auto Layout or manual layout techniques to size and position the view, and its height adjusts dynamically according to its width and the space it needs to display its content.
+ You use a list content view for displaying list-based content in a custom view hierarchy. You can embed a list content view manually in a custom cell or in a container view, like a [NSStackView](https://developer.apple.com/documentation/appkit/nsstackview). You can use Auto Layout or manual layout techniques to size and position the view, and its height adjusts dynamically according to its width and the space it needs to display its content.
  
  A list content view relies on its list content configuration to supply its styling and content. You create a list content view by passing in a ``NSListContentConfiguration`` to ``init(configuration:)``. To update the content view, you set a new configuration on it through its ``configuration`` property.
  
- If you’re using a `NSTableView` or `NSCollectionView`, you don’t need to manually create a list content view to take advantage of the list configuration. Instead, you assign a ``NSListContentConfiguration`` to the ``AppKit/NSTableCellView/contentConfiguration`` property of the table view cells or collection view items.
+ If you’re using a ``AppKit/NSTableView`` or ``AppKit/NSCollectionView``, you don’t need to manually create a list content view to take advantage of the list configuration. Instead, you assign a ``NSListContentConfiguration`` to the ``AppKit/NSTableCellView/contentConfiguration`` property of the table view cells or collection view items.
  */
 open class NSListContentView: NSView, NSContentView, EditingContentView {
     
@@ -69,7 +69,9 @@ open class NSListContentView: NSView, NSContentView, EditingContentView {
     lazy var imageTextStackView = NSStackView(views: [imageView, textStackView]).orientation(.horizontal).distribution(.fill)
     lazy var badgeStackView = NSStackView(views: [imageTextStackView]).orientation(.horizontal).distribution(.fill).alignment(.centerY)
     var stackViewConstraints: [NSLayoutConstraint] = []
-        
+    var _scaleTransform: Scale = .none
+    var _rotation: Rotation = .zero
+    
     var tableCellView: NSTableCellView? {
         superview as? NSTableCellView
     }
@@ -83,6 +85,8 @@ open class NSListContentView: NSView, NSContentView, EditingContentView {
     }
     
     func updateConfiguration() {
+        let isAnimating = NSAnimationContext.hasActiveGrouping && NSAnimationContext.current.duration > 0.0
+
         toolTip = appliedConfiguration.toolTip
         imageView.verticalConstraint?.activate(false)
                 
@@ -93,16 +97,19 @@ open class NSListContentView: NSView, NSContentView, EditingContentView {
         secondaryTextField.properties = appliedConfiguration.secondaryTextProperties
         secondaryTextField.updateText(appliedConfiguration.secondaryText, appliedConfiguration.secondaryAttributedText, appliedConfiguration.secondaryPlaceholderText, appliedConfiguration.secondaryAttributedPlaceholderText)
         
+        if isAnimating, imageView.image != appliedConfiguration.image || imageView.properties != appliedConfiguration.imageProperties {
+            imageView.transition(.fade(duration: NSAnimationContext.current.duration))
+        }
         imageView.image = appliedConfiguration.image
         imageView.properties = appliedConfiguration.imageProperties
         
-        textStackView.spacing = appliedConfiguration.textToSecondaryTextPadding
-        imageTextStackView.spacing = appliedConfiguration.imageToTextPadding
-        imageTextStackView.orientation = appliedConfiguration.imageProperties.position.orientation
-        imageTextStackView.alignment = appliedConfiguration.imageProperties.position.alignment
+        textStackView.animator(isAnimating).spacing = appliedConfiguration.textToSecondaryTextPadding
+        imageTextStackView.animator(isAnimating).spacing = appliedConfiguration.imageToTextPadding
+        imageTextStackView.animator(isAnimating).orientation = appliedConfiguration.imageProperties.position.orientation
+        imageTextStackView.animator(isAnimating).alignment = appliedConfiguration.imageProperties.position.alignment
         imageTextStackView.addArrangedSubview(appliedConfiguration.imageProperties.position.imageIsLeading ? textStackView : imageView)
         
-        stackViewConstraints.constant(appliedConfiguration.margins)
+        stackViewConstraints.constant(appliedConfiguration.margins, animated: isAnimating)
         
         if let badge = appliedConfiguration.badge, appliedConfiguration.imageProperties.position.orientation == .horizontal {
             badgeStackView.spacing = appliedConfiguration.textToBadgePadding
@@ -155,6 +162,18 @@ open class NSListContentView: NSView, NSContentView, EditingContentView {
         }
         
         updateAccesoryViews()
+        
+        if appliedConfiguration.scaleTransform != _scaleTransform {
+            anchorPoint = .center
+            _scaleTransform = appliedConfiguration.scaleTransform
+            animator(isAnimating).scale = _scaleTransform
+        }
+        if appliedConfiguration.rotation != _rotation {
+            anchorPoint = .center
+            _rotation = appliedConfiguration.rotation
+            animator(isAnimating).rotation = _rotation
+        }
+        animator(isAnimating).alphaValue = appliedConfiguration.alpha
     }
     
     func updateAccesoryViews() {
@@ -223,16 +242,8 @@ open class NSListContentView: NSView, NSContentView, EditingContentView {
         }
     }
     
-    func scaleImageSize(_ imageSize: CGSize, to size: CGSize) -> CGSize {
-        switch appliedConfiguration.imageProperties.scaling {
-            // case .fill, .fit: return imageSize.scaled(toHeight: size.height)
-        case .fit: return imageSize.scaled(toHeight: size.height)
-        default: return CGSize(size.height, size.height)
-        }
-    }
-    
     @available(*, unavailable)
-    public required init?(coder _: NSCoder) {
+    public required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 }

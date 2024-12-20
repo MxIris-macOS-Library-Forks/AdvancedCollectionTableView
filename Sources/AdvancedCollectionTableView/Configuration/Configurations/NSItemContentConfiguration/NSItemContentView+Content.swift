@@ -252,35 +252,40 @@ extension NSItemContentView {
         }
 
         func updateConfiguration() {
-            backgroundColor = contentProperties.resolvedBackgroundColor()
+            let isAnimating = NSAnimationContext.hasActiveGrouping && NSAnimationContext.current.duration > 0.0
+
+            animator(isAnimating).backgroundColor = contentProperties.resolvedBackgroundColor()
             visualEffect = contentProperties.visualEffect
             
-            containerView.border = contentProperties._resolvedBorder()
-            cornerRadius = contentProperties.cornerRadius
-            containerView.cornerRadius = contentProperties.cornerRadius
+            containerView.animator(isAnimating).border = contentProperties._resolvedBorder()
+            animator(isAnimating).cornerRadius = contentProperties.cornerRadius
+            containerView.animator(isAnimating).cornerRadius = contentProperties.cornerRadius
 
-            outerShadow = contentProperties._resolvedShadow()
+            animator(isAnimating).outerShadow = contentProperties._resolvedShadow()
 
+            if isAnimating, imageView.image != configuration.image || imageView.imageScaling != configuration.imageProperties.scaling.scaling {
+                imageView.transition(.fade(duration: NSAnimationContext.current.duration))
+            }
             imageView.tintColor = configuration.imageProperties.resolvedTintColor()
             imageView.imageScaling = configuration.imageProperties.scaling.scaling
             imageView.symbolConfiguration = configuration.imageProperties.symbolConfiguration?.nsSymbolConfiguration()
             image = configuration.image
             view = configuration.view
             overlayView = configuration.overlayView
-
-            anchorPoint = .center
             
             if contentProperties.scaleTransform != _scaleTransform {
+                anchorPoint = .center
                 _scaleTransform = contentProperties.scaleTransform
-                scale = _scaleTransform
+                animator(isAnimating).scale = _scaleTransform
             }
             if contentProperties.rotation != _rotation {
+                anchorPoint = .center
                 _rotation = contentProperties.rotation
-                rotation = _rotation
+                animator(isAnimating).rotation = _rotation
             }
             
             toolTip = contentProperties.toolTip
-            isHidden = !configuration.hasContent
+            animator(isAnimating).isHidden = !configuration.hasContent
             updateBadges()
             
             invalidateIntrinsicContentSize()
