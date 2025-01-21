@@ -32,7 +32,8 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
     struct Node {
         var parent: ItemIdentifierType?
         var children: [ItemIdentifierType] = []
-        var isExpanded: Bool = false
+        var isExpanded = false
+        var isGroup = false
     }
     
     // MARK: - Creating a snapshot
@@ -52,6 +53,28 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
     /// The identifiers of all items in the snapshot.
     public var items: [ItemIdentifierType] {
         Array(orderedItems)
+    }
+    
+    /**
+     A Boolean value indicating whether the root items are group items.
+     
+     The default value is `false`. The group items are expanded and can't be collapsed.
+     
+     If you set this value to `true`, the group rows display a disclosure button and you can manage the expansion state of the items via ``expand(_:)`` and ``collapse(_:)``.
+     */
+    public var usesGroupItems: Bool = false
+    
+    /**
+     A Boolean value indicating whether group items can be expanded/collapsed.
+     
+     The default value is `false`. The group row items are expanded and can't be collapsed.
+     
+     If you set this value to `true`, the group rows display a disclosure button and you can manage the expansion state of the items via ``expand(_:)`` and ``collapse(_:)``.
+     */
+    public var groupItemsAreExpandable = false
+    
+    var groupItems: [ItemIdentifierType] {
+        usesGroupItems && !groupItemsAreExpandable ? rootItems : []
     }
         
     /// The identifiers of the currently visible items in the snapshot.
@@ -293,7 +316,7 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
     public mutating func collapse(_ items: [ItemIdentifierType]) {
         items.forEach({ nodes[$0]?.isExpanded = false })
     }
-    
+        
     /// Returns a string with an ASCII representation of the snapshot.
     public func visualDescription() -> String {
         var result = "OutlineViewDiffableDataSourceSnapshot<\(String(describing: ItemIdentifierType.self))>\n"

@@ -15,7 +15,7 @@ public extension NSTableView {
 
      Use a row registration to register row views with your table view and configure each row for display. You create a row registration with your row type and data row type as the registration’s generic parameters, passing in a registration handler to configure the row. In the registration handler, you specify how to configure the content and appearance of that type of row.
 
-     The following example creates a row registration for row views of type `NSTableRowView`.
+     The following example creates a row registration for row views of type [NSTableRowView](https://developer.apple.com/documentation/appkit/nstablerowview).
 
      ```swift
      let rowRegistration = NSTableView.RowRegistration<NSTableRowView, String> { row, indexPath, string in
@@ -65,7 +65,7 @@ public extension NSTableView {
         public typealias Handler = (_ rowView: RowView, _ row: Int, _ item: Item) -> Void
 
         func makeView(_ tableView: NSTableView, _ row: Int, _ item: Item) -> RowView {
-            let rowView = (tableView.rowView(atRow: row, makeIfNecessary: false) as? RowView) ?? RowView(frame: .zero)
+            let rowView = (tableView.makeView(withIdentifier: identifier, owner: self) as? RowView) ?? RowView(frame: .zero)
             rowView.identifier = identifier
             handler(rowView, row, item)
             return rowView

@@ -1,4 +1,4 @@
-# Advanced NSCollectionView, NSTableView and NSOutlineView
+# Advanced NSCollectionView and NSTableView
 
 A framework for NSCollectionView, NSTableView and NSOutlineView. It provides a collection of classes and extensions, many of them being ports of missing UIKit APIs.
 
@@ -168,8 +168,29 @@ An extended `NSCollectionViewDiffableDataSource that provides:
  Simliar to CollectionViewDiffableDataSource.
  
   ## OutlineViewDiffableDataSource
+  
+  A diffable data source for NSOutlineView.
+  
+  Example usage of a data source with a String as `ItemIdentifierType`:
  
- Simliar to CollectionViewDiffableDataSource.
+ ```swift
+    let dataSource = OutlineViewDiffableDataSource<String>(outlineView: outlineView, cellRegistration: cellRegistration)
+    
+    var snapshot = OutlineViewDiffableDataSourceSnapshot<String>()
+    let rootItems ["Root 1", "Root 2", "Root 3", "Root 4", "Root 5"]
+    snapshot.append(rootItems)
+    
+    rootItems.forEach { rootItem in
+        let childItems = (1...5).map { "\(rootItem).\($0)" }
+        snapshot.append(childItems, to: rootItem)
+        
+        childItems.forEach { childItem in
+            let grandchildItems = (1...5).map { "\(childItem).\($0)" }
+            snapshot.append(grandchildItems, to: childItem)
+        }
+    }
+    dataSource.apply(snapshot)
+ ```
 
 ## Quicklook for NSTableView & NSCollectionView
 
@@ -213,7 +234,7 @@ collectionViewItem.quicklookPreview = URL(fileURLWithPath: "someFile.png")
 
 ## Installation
 
-Add AdvancedCollectionTableView to your app's Package.swift file, or selecting File -> Add Package Dependencies in Xcode:
+Add `AdvancedCollectionTableView` to your app's `Package.swift` file, or selecting `File -> Add Package Dependencies in Xcode:
 
 ```swift
 .package(url: "https://github.com/flocked/AdvancedCollectionTableView")
