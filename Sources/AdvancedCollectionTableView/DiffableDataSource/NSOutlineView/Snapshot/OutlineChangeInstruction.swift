@@ -6,171 +6,116 @@
 //
 
 import AppKit
+import FZSwiftUtils
 
-enum OutlineChangeInstruction: CustomStringConvertible {
-    case remove(AnyHashable, IndexPath)
-    case insert(AnyHashable, IndexPath)
-    case move(IndexPath, IndexPath)
+enum OutlineChangeInstruction: CustomStringConvertible, Hashable, Equatable {
+    case insert(_ item: AnyHashable, at: Int, parent: AnyHashable?)
+    case remove(_ item: AnyHashable, at: Int, parent: AnyHashable?)
+    case move(_ item: AnyHashable, from: Int, _ fromParent: AnyHashable?, to: Int, _ toParent: AnyHashable?)
 
-    public var description: String {
+    var description: String {
         switch self {
-        case .remove(let item, let idx): return "Removing @ \(idx): \(item)"
-        case .insert(let item, let idx): return "Inserting @ \(idx): \(item)"
-        case .move(let from, let to): return "Moving from \(from) to \(to)"
-        }
-    }
-}
-
-extension OutlineChangeInstruction: Equatable {
-    static func ==(lhs: OutlineChangeInstruction, rhs: OutlineChangeInstruction) -> Bool {
-        switch (lhs, rhs) {
-        case (.insert(let l, let l2), .insert(let r, let r2)): return l == r && l2 == r2
-        case (.remove(let l, let l2), .remove(let r, let r2)): return l == r && l2 == r2
-        case (.move(let l, let l2), .move(let r, let r2)): return l == r && l2 == r2
-        default: break
-        }
-
-        return false
-    }
-
-    var item: AnyHashable? {
-        switch self {
-        case .remove(let item, _), .insert(let item, _): return item
-        case .insert(let item, _): return item
-        default: return nil
-        }
-    }
-
-    var targetIndexPath: IndexPath {
-        switch self {
-        case .remove(_, let indexPath): return indexPath
-        case .insert(_, let indexPath): return indexPath
-        case .move(_, let indexPath): return indexPath
-        }
-    }
-}
-
-extension Array where Element == OutlineChangeInstruction {
-    mutating func reduce() {
-        // search for all removed, then try to pair with an inserted
-        let removeds = filter { if case .remove = $0 { return true } else { return false } }
-        for removed in removeds {
-            let inserteds = filter { if case .insert = $0 { return true } else { return false } }
-            if let item = removed.item,
-                let inserted = inserteds.first(where: { $0.item == item }) {
-                let newInstruction = OutlineChangeInstruction.move(removed.targetIndexPath, inserted.targetIndexPath)
-                if let removeIdx = firstIndex(where: { $0 == removed }) {
-                    remove(at: removeIdx)
-                }
-                guard let insertIdx = firstIndex(where: { $0 == inserted }) else {
-                    preconditionFailure("how does this happen")
-                }
-                insert(newInstruction, at: insertIdx)
-            }
+        case .insert(let item, let index, let parent):
+            let parent = "\(parent != nil ? "\(parent!)" : "Root")"
+            return "insert \"\(item)\" in \"\(parent)\" at \(index)"
+        case .remove(let item, let index, let parent):
+            let parent = "\(parent != nil ? "\(parent!)" : "Root")"
+            return "Remove \"\(item)\"from \"\(parent)\" at \(index)"
+        case .move(let item, let from, let fromParent, let to, let toParent):
+            let fromParent = "\(fromParent != nil ? "\(fromParent!)" : "Root")"
+            let toParent = "\(toParent != nil ? "\(toParent!)" : "Root")"
+            return "Move \"\(item)\" from \"\(fromParent)\" at \(from) to \"\(toParent)\" at \(to)"
         }
     }
 }
 
 extension OutlineViewDiffableDataSourceSnapshot {
-    func instructions(forMorphingInto newSnapshot: OutlineViewDiffableDataSourceSnapshot) -> [OutlineChangeInstruction] {
-        func calculateInstructions(from source: [ItemIdentifierType], to destination: [ItemIdentifierType], baseIndexPath: IndexPath) -> [OutlineChangeInstruction] {
-            var result: [OutlineChangeInstruction] = []
-            var work = source
-     
-            for deletable in work.filter({ !destination.contains($0) }) {
-                if let delIdx = work.firstIndex(of: deletable) {
-                    work.remove(at: delIdx)
-                    result.append(.remove(deletable, baseIndexPath.appending(delIdx)))
+    func instructions(forMorphingTo newSnapshot: OutlineViewDiffableDataSourceSnapshot) -> [OutlineChangeInstruction] {
+        var movedItems: Set<ItemIdentifierType> = []
+        var work = self
+        work.isCalculatingDiff = true
+        func calculateSteps(from source: [ItemIdentifierType], to destination: [ItemIdentifierType], parent: ItemIdentifierType? = nil) -> [OutlineChangeInstruction] {
+            var instructions: [OutlineChangeInstruction] = []
+            for step in destination.difference(from: source).steps {
+                switch step {
+                case .insert(let item, let index):
+                    if let fromIndex = work.childIndex(of: item) {
+                        guard !movedItems.contains(item) else { continue }
+                        movedItems.insert(item)
+                        instructions.append(.move(item, from: fromIndex, work.parent(of: item), to: index, parent))
+                        work.move([item], toIndex: index, of: parent)
+                    } else {
+                        instructions.append(.insert(item, at: index, parent: parent))
+                        work.insert(item, at: index, of: parent)
+                    }
+                case .remove(let item, let index):
+                    if let toIndex = newSnapshot.childIndex(of: item) {
+                        guard !movedItems.contains(item) else { continue }
+                        movedItems.insert(item)
+                        let newParent = newSnapshot.parent(of: item)
+                        instructions.append(.move(item, from: index, work.parent(of: item), to: toIndex, newParent))
+                        work.move([item], toIndex: toIndex, of: newParent)
+                    } else {
+                        instructions.append(.remove(item, at: index, parent: parent))
+                        work.delete([item])
+                    }
+                case .move(let item, let from, let to):
+                    instructions.append(.move(item, from: from, parent, to: to, parent))
+                    work.move([item], toIndex: to, of: parent)
                 }
             }
-            for (dstIdx, item) in destination.enumerated() {
-                if work.firstIndex(of: item) == nil {
-                    work.insert(item, at: dstIdx)
-                    result.append(.insert(item, baseIndexPath.appending(dstIdx)))
-                }
+            for item in destination {
+                instructions += calculateSteps(from: work.children(of: item), to: newSnapshot.children(of: item), parent: item)
             }
-            for (index, item) in destination.enumerated() {
-                let indexPath = baseIndexPath.appending(index)
-                if work.contains(item) {
-                    result += calculateInstructions(from: children(of: item), to: newSnapshot.children(of: item), baseIndexPath: indexPath)
-                }
-            }
-            return result
+            return instructions
         }
-        
-        var result = calculateInstructions(from: rootItems, to: newSnapshot.rootItems, baseIndexPath: IndexPath())
-        result.reduce()
-        return result
+        let instructions = calculateSteps(from: rootItems, to: newSnapshot.rootItems)
+        return instructions
     }
 }
 
-
 extension NSOutlineView {
     func apply<Item: Hashable>(_ snapshot: OutlineViewDiffableDataSourceSnapshot<Item>, currentSnapshot: OutlineViewDiffableDataSourceSnapshot<Item>, option: NSDiffableDataSourceSnapshotApplyOption, animation: NSTableView.AnimationOptions, completion: (() -> Void)?) {
-        let instructions = currentSnapshot.instructions(forMorphingInto: snapshot)
-        
-        let oldExpanded = Set(currentSnapshot.nodes.filter { $0.value.isExpanded }.map { $0.key } + currentSnapshot.groupItems)
-        let newExpanded = Set(snapshot.nodes.filter { $0.value.isExpanded }.map { $0.key } + snapshot.groupItems)
-        let collapse = Array(oldExpanded.subtracting(newExpanded))
-        var expand = Array(newExpanded.subtracting(oldExpanded))
-                
-        var animation = animation
-        if case .withoutAnimation = option {
-            animation = []
-        }
-        if !option.isReloadData {
-            func applySnapshot() {
-                beginUpdates()
-                instructions.forEach { instr in
-                    switch instr {
-                    case .insert(_, let indexPath):
-                        let parent = lastParent(for: indexPath)
-                        if let childIndex = indexPath.last {
-                            insertItems(at: [childIndex], inParent: parent, withAnimation: animation)
-                        }
-                    case .move(let src, let dst):
-                        let srcParent = lastParent(for: src)
-                        let dstParent = lastParent(for: dst)
-                        if let srcChild = src.last, let dstChild = dst.last {
-                            moveItem(at: srcChild, inParent: srcParent, to: dstChild, inParent: dstParent)
-                        }
-                    case .remove(_, let indexPath):
-                        let parent = lastParent(for: indexPath)
-                        if let childIndex = indexPath.last {
-                            removeItems(at: [childIndex], inParent: parent, withAnimation: animation)
-                        }
-                    }
-                }
-                let animates = option.animationDuration ?? 0.0 > 0.0
-                if animates {
-                    collapse.forEach({ animator().collapseItem($0) })
-                    expand.forEach({ animator().expandItem($0) })
-                }
-                endUpdates()
-                if !animates {
-                    collapse.forEach({ collapseItem($0) })
-                    expand.forEach({ expandItem($0) })
+        func applySnapshot() {
+            beginUpdates()
+            for instruction in currentSnapshot.instructions(forMorphingTo: snapshot) {
+                switch instruction {
+                case .insert(_, let index, let parent):
+                    insertItems(at: IndexSet(integer: index), inParent: parent, withAnimation: animation)
+                case .remove(_, let index, let parent):
+                    removeItems(at: IndexSet(integer: index), inParent: parent, withAnimation: animation)
+                case .move(_, let from, let fromParent, let to, let toParent):
+                    moveItem(at: from, inParent: fromParent, to: to, inParent: toParent)
                 }
             }
-            if let duration = option.animationDuration, duration > 0.0 {
-                NSAnimationContext.beginGrouping()
-                NSAnimationContext.current.duration = duration
-                NSAnimationContext.current.completionHandler = completion
+            expandCollapseItems()
+            endUpdates()
+        }
+        
+        func expandCollapseItems() {
+            let oldExpanded = Set(currentSnapshot.nodes.filter { $0.value.isExpanded }.map { $0.key } + currentSnapshot._groupItems)
+            let newExpanded = Set(snapshot.nodes.filter { $0.value.isExpanded }.map { $0.key } + snapshot._groupItems)
+            let collapse = Array(oldExpanded.subtracting(newExpanded))
+            let expand = Array(newExpanded.subtracting(oldExpanded))
+            collapse.forEach({ animator().collapseItem($0) })
+            expand.forEach({ animator().expandItem($0) })
+        }
+        
+        floatsGroupRows = snapshot.groupItems.isFloating
+        
+        if option.isReloadData {
+            reloadData()
+            expandCollapseItems()
+            completion?()
+        } else if let duration = option.animationDuration, duration > 0.0 {
+            NSView.animate(withDuration: duration, animations: {
                 applySnapshot()
-                NSAnimationContext.endGrouping()
-            } else {
+            }, completion: completion)
+        } else {
+            NSView.performWithoutAnimation {
                 applySnapshot()
                 completion?()
             }
-        } else {
-            reloadData()
         }
-        
-    }
-    
-    func lastParent(for indexPath: IndexPath) -> Any? {
-        var indexPath = indexPath
-        indexPath.removeLast()
-        return indexPath.compactMap({ child($0, ofItem: parent) }).last
     }
 }

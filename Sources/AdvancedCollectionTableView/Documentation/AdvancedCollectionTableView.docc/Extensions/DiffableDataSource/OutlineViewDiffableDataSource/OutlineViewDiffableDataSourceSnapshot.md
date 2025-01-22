@@ -24,6 +24,7 @@
 - ``parent(of:)``
 - ``contains(_:)``
 - ``isVisible(_:)``
+- ``isDescendant(_:of:)``
 
 ### Inserting items
 
@@ -52,6 +53,11 @@
 - ``isExpanded(_:)``
 - ``expand(_:)``
 - ``collapse(_:)``
+
+### Configurating group items
+
+- ``groupItems`` 
+- ``GroupItemProperties``
 
 ### Debugging snapshots
 

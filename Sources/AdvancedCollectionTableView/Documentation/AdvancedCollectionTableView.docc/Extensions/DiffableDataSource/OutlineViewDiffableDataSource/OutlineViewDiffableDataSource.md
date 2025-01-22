@@ -12,9 +12,9 @@
 
 ### Creating group row views.
 
-- ``groupRowCellProvider-swift.property``
-- ``GroupRowCellProvider-swift.typealias``
-- ``applyGroupRowCellRegistration(_:)``
+- ``groupItemCellProvider-swift.property``
+- ``GroupItemCellProvider-swift.typealias``
+- ``applyGroupItemCellRegistration(_:)``
 
 ### Creating row views
 
@@ -47,6 +47,10 @@
 
 - ``menuProvider``
 - ``rightClickHandler``
+
+### Providing tint configurations
+
+``tintConfigurationProvider``
 
 ### Displaying empty view
 

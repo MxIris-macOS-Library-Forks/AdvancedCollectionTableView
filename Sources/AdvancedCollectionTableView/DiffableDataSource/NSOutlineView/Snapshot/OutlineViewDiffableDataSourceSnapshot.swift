@@ -33,7 +33,6 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
         var parent: ItemIdentifierType?
         var children: [ItemIdentifierType] = []
         var isExpanded = false
-        var isGroup = false
     }
     
     // MARK: - Creating a snapshot
@@ -45,7 +44,7 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
     var nodes: [ItemIdentifierType: Node] = [:]
     
     /// The items ordered.
-    private var orderedItems: OrderedSet<ItemIdentifierType> = []
+    var orderedItems: OrderedSet<ItemIdentifierType> = []
     
     /// The identifiers of the items at the top level of the snapshot’s hierarchy.
     public internal(set) var rootItems: [ItemIdentifierType] = []
@@ -53,28 +52,6 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
     /// The identifiers of all items in the snapshot.
     public var items: [ItemIdentifierType] {
         Array(orderedItems)
-    }
-    
-    /**
-     A Boolean value indicating whether the root items are group items.
-     
-     The default value is `false`. The group items are expanded and can't be collapsed.
-     
-     If you set this value to `true`, the group rows display a disclosure button and you can manage the expansion state of the items via ``expand(_:)`` and ``collapse(_:)``.
-     */
-    public var usesGroupItems: Bool = false
-    
-    /**
-     A Boolean value indicating whether group items can be expanded/collapsed.
-     
-     The default value is `false`. The group row items are expanded and can't be collapsed.
-     
-     If you set this value to `true`, the group rows display a disclosure button and you can manage the expansion state of the items via ``expand(_:)`` and ``collapse(_:)``.
-     */
-    public var groupItemsAreExpandable = false
-    
-    var groupItems: [ItemIdentifierType] {
-        usesGroupItems && !groupItemsAreExpandable ? rootItems : []
     }
         
     /// The identifiers of the currently visible items in the snapshot.
@@ -86,6 +63,8 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
         }
         return rootItems + rootItems.flatMap({ visibleChilds(for: $0) })
     }
+    
+    var isCalculatingDiff = false
     
     // MARK: - Adding ItemIdentifierTypes
     
@@ -124,6 +103,32 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
             nodes[parent]?.children.insert(contentsOf: items, at: before ? childIndex : childIndex + 1)
             items.forEach { nodes[$0] = .init(parent: parent) }
         }
+        updateOrderedItems()
+    }
+    
+    /// Inserts the provided items to the specified parent.
+    public mutating func insert(_ items: [ItemIdentifierType], atIndex index: Int, of parent: ItemIdentifierType? = nil) {
+        validateItems(items)
+        if let parent = parent {
+            validateItem(parent, "Parent item does not exist in snapshot: ")
+            if index > children(of: parent).count {
+                NSException(name: .internalInconsistencyException, reason: "Index is to large", userInfo: nil).raise()
+            }
+            nodes[parent]?.children.insert(contentsOf: items, at: index)
+        } else if index > rootItems.count {
+            NSException(name: .internalInconsistencyException, reason: "Index is to large", userInfo: nil).raise()
+            rootItems.insert(contentsOf: items, at: index)
+        }
+        items.forEach({ nodes[$0] = .init(parent: parent) })
+    }
+    
+    mutating func insert(_ item: ItemIdentifierType, at index: Int, of parent: ItemIdentifierType?) {
+        if let parent = parent {
+            nodes[parent]?.children.insert(item, at: index)
+        } else {
+            rootItems.insert(item, at: index)
+        }
+        nodes[item] = .init(parent: parent)
         updateOrderedItems()
     }
     
@@ -176,6 +181,7 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
         } else if let index = rootItems.firstIndex(of: toItem) {
             rootItems.insert(contentsOf: items, at: before ? index : index + 1)
         }
+        
         updateOrderedItems()
     }
     
@@ -185,10 +191,10 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
         if let parent = parent {
             validateItem(parent, "Parent item does not exist in snapshot: ")
             if index > children(of: parent).count {
-                NSException(name: .internalInconsistencyException, reason: "Index to large", userInfo: nil).raise()
+                NSException(name: .internalInconsistencyException, reason: "Index is to large", userInfo: nil).raise()
             }
         } else if index > rootItems.count {
-            NSException(name: .internalInconsistencyException, reason: "Index to large", userInfo: nil).raise()
+            NSException(name: .internalInconsistencyException, reason: "Index is to large", userInfo: nil).raise()
         }
         items.forEach({
             if self.parent(of: $0) != parent {
@@ -265,6 +271,12 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
         }
         return true
     }
+    
+    /// A Boolean value indicating whether the item is a descendant of the specified parent.
+    public func isDescendant(_ item: ItemIdentifierType, of parent: ItemIdentifierType) -> Bool {
+        let children = children(of: parent)
+        return children.contains(item) || children.contains(where: { isDescendant(item, of: $0) })
+    }
 
     // MARK: - Removing items
 
@@ -291,7 +303,7 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
     /// Replaces all child items of the specified parent item with the provided snapshot.
     public mutating func replace(childrenOf parent: ItemIdentifierType, using snapshot: OutlineViewDiffableDataSourceSnapshot) {
         validateItem(parent, "Parent item does not exist in snapshot: ")
-        validateItems(Array(snapshot.orderedItems), removing: descendants(of: parent))
+        validateItems(Array(snapshot.items), removing: descendants(of: parent))
         guard let previousChildren = nodes[parent]?.children else { return }
         previousChildren.forEach({ deleteItemAndDescendants($0) })
         nodes[parent]?.children = snapshot.rootItems
@@ -316,6 +328,53 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
     public mutating func collapse(_ items: [ItemIdentifierType]) {
         items.forEach({ nodes[$0]?.isExpanded = false })
     }
+    
+    // MARK: - Configurating group items
+    
+    /// Properties for group items.
+    public var groupItems = GroupItemProperties()
+    
+    /// Properties for group items.
+    public struct GroupItemProperties {
+        /**
+         A Boolean value indicating whether the root items are displayed as group items.
+         
+         If set to `true`, you can optionally provide custom group item cell views using `OutlineViewDiffableDataSource's` ``OutlineViewDiffableDataSource/groupItemCellProvider-swift.property`` and ``OutlineViewDiffableDataSource/applyGroupItemCellRegistration(_:)``.
+         */
+        public var isEnabled: Bool = false
+
+        /**
+         A Boolean value indicating whether group items can be expanded/collapsed.
+         
+         The default value is `true` and group items can't be collapsed.
+         
+         If you set the value to `false`, the group item can be expanded and collapsed like regular items.
+         */
+        public var isAlwaysExpanded: Bool = true
+        
+        /// A Boolean value indicating whether the group items are floating.
+        public var isFloating: Bool = false
+        
+        public var discolure: DisclosureOption = .isDisplayedOnHover
+        
+        public enum DisclosureOption {
+            case isHidden
+            case isDisplayedOnHover
+            case isDisplayed
+        }
+        
+        /**
+         
+         
+         */
+        public var showsDisclosureOnHovering = false
+    }
+    
+    var _groupItems: [ItemIdentifierType] {
+        groupItems.isEnabled && groupItems.isAlwaysExpanded ? rootItems : []
+    }
+    
+    // MARK: - Debugging snapshots
         
     /// Returns a string with an ASCII representation of the snapshot.
     public func visualDescription() -> String {
@@ -356,10 +415,10 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
         let descendants = descendants(of: item)
         let itemsToDelete = descendants + item
         itemsToDelete.forEach({ nodes[$0] = nil })
-        orderedItems.removeAll { itemsToDelete.contains($0) }
+        orderedItems.remove(itemsToDelete)
     }
     
-    private mutating func deleteItemFromParent(_ item: ItemIdentifierType) {
+    mutating func deleteItemFromParent(_ item: ItemIdentifierType) {
         if let parent = parent(of: item), let index = nodes[parent]?.children.firstIndex(of: item) {
             nodes[parent]?.children.remove(at: index)
         } else if let index = rootItems.firstIndex(of: item) {
@@ -368,11 +427,14 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
     }
     
     func childIndex(of item: ItemIdentifierType) -> Int? {
-        guard let parent = parent(of: item) else { return nil }
-        return children(of: parent).firstIndex(of: item)
+        if let parent = parent(of: item) {
+            return children(of: parent).firstIndex(of: item)
+        }
+        return rootItems.firstIndex(of: item)
     }
     
     func validateItems(_ items: [ItemIdentifierType], removing: [ItemIdentifierType] = [], _ message: String = "ItemIdentifierTypes in a snapshot must be unique. Duplicate items:\n") {
+        guard !isCalculatingDiff else { return }
         var orderedItems = orderedItems
         orderedItems.remove(removing)
         var duplicates: OrderedSet<ItemIdentifierType> = []
@@ -387,8 +449,9 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
             NSException(name: .internalInconsistencyException, reason: "\(message)\(duplicateItemIdentifierTypesString)", userInfo: nil).raise()
         }
     }
-    
+        
     func validateMoveItems(_ items: [ItemIdentifierType]) {
+        guard !isCalculatingDiff else { return }
         let items = items.filter({ nodes[$0] == nil })
         if !items.isEmpty {
             if items.count == 1 {
@@ -406,21 +469,20 @@ public struct OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType: Hashable
     }
     
     mutating func updateOrderedItems() {
+        guard !isCalculatingDiff else { return }
         orderedItems = []
         for root in rootItems {
             orderedItems.append(root)
             orderedItems.append(contentsOf: descendants(of: root))
         }
     }
-    
-    func isExpandable(_ item: ItemIdentifierType) -> Bool {
-        !children(of: item).isEmpty
-    }
 }
 
 fileprivate extension Array where Element: Equatable {
     mutating func _insert(_ items: [Element], at index: Int) {
         var adjustedIndex = index
+        let _index = index
+        let values = self
         let filteredItems = items.filter { item in
             if let existingIndex = firstIndex(of: item) {
                 if existingIndex < adjustedIndex {
@@ -431,6 +493,29 @@ fileprivate extension Array where Element: Equatable {
             }
             return true
         }
+        Swift.print("_insert", _index, adjustedIndex, values, items)
         insert(contentsOf: filteredItems, at: adjustedIndex)
     }
 }
+
+/*
+/**
+ A Boolean value indicating whether the root items are group items.
+ 
+ The default value is `false`. The group items are expanded and can't be collapsed.
+ 
+ If you set this value to `true`, the group rows display a disclosure button and you can manage the expansion state of the items via ``expand(_:)`` and ``collapse(_:)``.
+ */
+public var usesGroupItems: Bool = false
+*/
+
+/*
+/**
+ A Boolean value indicating whether group items can be expanded/collapsed.
+ 
+ The default value is `false`. The group row items are expanded and can't be collapsed.
+ 
+ If you set this value to `true`, the group rows display a disclosure button and you can manage the expansion state of the items via ``expand(_:)`` and ``collapse(_:)``.
+ */
+public var groupItemsAreExpandable = false
+ */

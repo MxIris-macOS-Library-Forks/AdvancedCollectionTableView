@@ -51,7 +51,7 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
     var draggedItems: [ItemIdentifierType] = []
     var draggedParent: ItemIdentifierType?
     var draggedIndexes: [Int] = []
-    var isExpandingItems = false
+    var isApplyingSnapshot = false
     
     /// The closure that configures and returns the outline view’s row views from the diffable data source.
     open var rowViewProvider: RowViewProvider?
@@ -75,12 +75,12 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
         }
     }
     
-    /// The closure that configures and returns cell views for the outline view’s group rows.
-    open var groupRowCellProvider: GroupRowCellProvider?
+    /// The closure that configures and returns cell views for the outline view’s group items.
+    open var groupItemCellProvider: GroupItemCellProvider?
     
-    /// Applies the specified cell registration to configures and returns cell views for the outline view’s group rows.
-    open func applyGroupRowCellRegistration<Cell: NSTableCellView>(_ registration: NSTableView.CellRegistration<Cell, ItemIdentifierType>) {
-        groupRowCellProvider = { outlineView, column, item in
+    /// Applies the specified cell registration to configures and returns cell views for the outline view’s group items.
+    open func applyGroupItemCellRegistration<Cell: NSTableCellView>(_ registration: NSTableView.CellRegistration<Cell, ItemIdentifierType>) {
+        groupItemCellProvider = { outlineView, column, item in
         outlineView.makeCellView(using: registration, forColumn: column ?? .outline, row: 0, item: item)!
         }
     }
@@ -95,7 +95,7 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
      
      - Returns: A configured cell object.
      */
-    public typealias GroupRowCellProvider = (_ outlineView: NSOutlineView, _ tableColumn: NSTableColumn?, _ identifier: ItemIdentifierType) -> NSView
+    public typealias GroupItemCellProvider = (_ outlineView: NSOutlineView, _ tableColumn: NSTableColumn?, _ identifier: ItemIdentifierType) -> NSView
 
     
     /**
@@ -510,13 +510,14 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
      - completion: An optional completion handler which gets called after applying the snapshot. The system calls this closure from the main queue.
      */
     public func apply(_ snapshot: OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType>, _ option: NSDiffableDataSourceSnapshotApplyOption = .animated, completion: (() -> Void)? = nil) {
-        isExpandingItems = true
+        isApplyingSnapshot = true
         let current = currentSnapshot
         let previousIsEmpty = currentSnapshot.items.isEmpty
         currentSnapshot = snapshot
         outlineView.apply(snapshot, currentSnapshot: current, option: option, animation: defaultRowAnimation, completion: completion)
+         updateEmptyView(previousIsEmpty: previousIsEmpty)
         updateEmptyView(previousIsEmpty: previousIsEmpty)
-        isExpandingItems = false
+        isApplyingSnapshot = false
     }
     
     public func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
@@ -534,7 +535,7 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
     }
     
     public func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-        currentSnapshot.isExpandable(item as! ItemIdentifierType)
+        !currentSnapshot.children(of: item as! ItemIdentifierType).isEmpty
     }
     
     public func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forItems draggedItems: [Any]) {
@@ -585,7 +586,7 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
     public var groupItems: GroupItemOption = .none
     
     func updateGroupItems(reload: Bool = false) {
-        isExpandingItems = true
+        isApplyingSnapshot = true
         if reload {
             reloadItems(currentSnapshot.rootItems)
         }
@@ -648,7 +649,7 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
                 Swift.print("CHECK", currentSnapshot.rootItems.filter({ outlineView.isItemExpanded($0) }))
             }
         }
-        isExpandingItems = false
+        isApplyingSnapshot = false
     }
     */
     
@@ -662,12 +663,16 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
         if index == -1, delegate.outlineView(outlineView, isGroupItem: item) {
             return []
         }
+        if let item = item as? ItemIdentifierType, draggedItems.contains(where: { currentSnapshot.isDescendant(item, of: $0) }) {
+            return []
+        }
+        
         /*
         if index == -1, !draggedIndexes.isEmpty, (draggedParent == item as? ItemIdentifierType) || (draggedParent == nil && item == nil) {
             return []
         }
         */
-        return reorderingHandlers.canReorder?(draggedItems, item as? ItemIdentifierType) == true ? .move : []
+        return reorderingHandlers.canReorder?(draggedItems, item as? ItemIdentifierType) ?? true == true ? .move : []
     }
     
     public func outlineView(_ outlineView: NSOutlineView, acceptDrop info: any NSDraggingInfo, item: Any?, childIndex index: Int) -> Bool {
@@ -683,7 +688,7 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
         snapshot.move(draggedItems, toIndex: index, of: item as? ItemIdentifierType)
         let transaction = OutlineViewDiffableDataSourceTransaction(initial: currentSnapshot, final: snapshot)
         reorderingHandlers.willReorder?(transaction)
-        apply(snapshot, .usingReloadData)
+        apply(snapshot, reorderingHandlers.animates ? .animated : .withoutAnimation)
         reorderingHandlers.didReorder?(transaction)
         return true
     }
@@ -934,6 +939,79 @@ extension OutlineViewDiffableDataSource where ItemIdentifierType: QuicklookPrevi
             outlineView.quicklookRows(at: rows, current: currentRow)
         } else {
             outlineView.quicklookRows(at: rows)
+        }
+    }
+}
+
+extension OutlineViewDiffableDataSource {
+    /**
+     Sets the specified item sort comperator to the table column.
+     
+     - Parameters:
+        - comparator: The item sorting comperator, or `nil` to remove any sorting comperators from the table column.
+        - tableColumn: The table column.
+     */
+    public func setSortComparator(_ comparator: SortingComparator<ItemIdentifierType>?, forColumn tableColumn: NSTableColumn, activate: Bool = false) {
+        if activate, comparator != nil, let key = tableColumn.sortDescriptorPrototype?.key {
+            outlineView.sortDescriptors.removeAll(where: { $0.key == key })
+        }
+        if let comparator = comparator {
+            tableColumn.sortDescriptorPrototype = ItemIdentifierTypeSortDescriptor([comparator])
+            if activate {
+                outlineView.sortDescriptors = [tableColumn.sortDescriptorPrototype!] + outlineView.sortDescriptors
+            }
+        } else if tableColumn.sortDescriptorPrototype is ItemIdentifierTypeSortDescriptor {
+            tableColumn.sortDescriptorPrototype = nil
+        }
+    }
+    
+    /**
+     Sets the specified item sort comperators to the table column.
+     
+     - Parameters:
+        - comparators: The item sorting comperators.
+        - tableColumn: The table column.
+     */
+    public func setSortComparators(_ comparators: [SortingComparator<ItemIdentifierType>], forColumn tableColumn: NSTableColumn, activate: Bool = false) {
+        if activate, !comparators.isEmpty, let key = tableColumn.sortDescriptorPrototype?.key {
+            outlineView.sortDescriptors.removeAll(where: { $0.key == key })
+        }
+        if comparators.isEmpty {
+            setSortComparator(nil, forColumn: tableColumn)
+        } else {
+            tableColumn.sortDescriptorPrototype = ItemIdentifierTypeSortDescriptor(comparators)
+            if activate {
+                outlineView.sortDescriptors = [tableColumn.sortDescriptorPrototype!] + outlineView.sortDescriptors
+            }
+        }
+    }
+    
+    class ItemIdentifierTypeSortDescriptor: NSSortDescriptor {
+        
+        var comparators: [SortingComparator<ItemIdentifierType>] = []
+        
+        init(_ comparators: [SortingComparator<ItemIdentifierType>], ascending: Bool = true, key: String? = nil) {
+            super.init(key: key ?? UUID().uuidString, ascending: ascending, selector: nil)
+            self.comparators = comparators
+        }
+        
+        override var reversedSortDescriptor: Any {
+            var comparators = comparators
+            comparators.editEach({$0.order.toggle() })
+            return ItemIdentifierTypeSortDescriptor(comparators, ascending: !ascending, key: key)
+        }
+        
+        override func copy() -> Any {
+            ItemIdentifierTypeSortDescriptor(comparators, ascending: ascending, key: key)
+        }
+        
+        override func isEqual(_ object: Any?) -> Bool {
+            guard let object = object as? ItemIdentifierTypeSortDescriptor else { return false }
+            return object.key == key && object.ascending == ascending && object.comparators == comparators
+        }
+        
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
         }
     }
 }
