@@ -31,12 +31,12 @@ import FZSwiftUtils
  To connect a diffable data source to a outline view, you create the diffable data source using its ``init(outlineView:cellProvider:)`` or ``init(outlineView:cellRegistration:)`` initializer, passing in the outline view you want to associate with that data source.
 
  ```swift
- outlineView.dataSource = OutlineViewDiffableDataSource<Section, Item>(outlineView: outlineView, cellRegistration: cellRegistration)
+ outlineView.dataSource = OutlineViewDiffableDataSource<Item>(outlineView: outlineView, cellRegistration: cellRegistration)
  ```
 
  Then, you generate the current state of the data and display the data in the UI by constructing and applying a snapshot. For more information, see `NSDiffableDataSourceSnapshot`.
  
- - Note: Each of your sections and items must have unique identifiers.
+ - Note: Each of your items must have unique identifiers.
 
  - Note: Don’t change the `dataSource` or `delegate` on the outline view after you configure it with a diffable data source. If the outline view needs a new data source after you configure it initially, create and configure a new outline view and diffable data source.
  */
@@ -417,6 +417,50 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
         outlineView.visibleRowIndexes().compactMap { item(forRow: $0) }
     }
     
+    /**
+     Expands a specified item and, optionally, its children.
+     
+     - Parameters:
+        - item: The items to expand.
+        - expandChildren: If `true`, recursively expands item and its children. If `false`, expands item only.
+     */
+    open func expand(_ item: ItemIdentifierType,  expandChildren: Bool = false) {
+        expand([item], expandChildren: expandChildren)
+    }
+    
+    /**
+     Expands the specified items and, optionally, their children.
+     
+     - Parameters:
+        - items: The items to expand.
+        - expandChildren: If `true`, recursively expands item and its children. If `false`, expands item only.
+     */
+    open func expand(_ items: [ItemIdentifierType],  expandChildren: Bool = false) {
+        items.forEach({ outlineView.expandItem($0, expandChildren: expandChildren) })
+    }
+    
+    /**
+     Collapses a given item and, optionally, its children.
+     
+     - Parameters:
+        - item: The item to expand.
+        - collapseChildren: If `true`, recursively collapses item and its children. If `false`, collapses item only.
+     */
+    open func collapse(_ item: ItemIdentifierType,  collapseChildren: Bool = false) {
+        collapse([item], collapseChildren: collapseChildren)
+    }
+    
+    /**
+     Collapses the specified items and, optionally, their children.
+     
+     - Parameters:
+        - items: The items to expand.
+        - collapseChildren: If `true`, recursively collapses item and its children. If `false`, collapses item only.
+     */
+    open func collapse(_ items: [ItemIdentifierType],  collapseChildren: Bool = false) {
+        items.forEach({ outlineView.collapseItem($0, collapseChildren: collapseChildren) })
+    }
+    
     func rowView(for item: ItemIdentifierType) -> NSTableRowView? {
         if let row = row(for: item) {
             return outlineView.rowView(atRow: row, makeIfNecessary: false)
@@ -431,7 +475,7 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
      To connect a diffable data source to a outline view, you create the diffable data source using this initializer, passing in the outline view you want to associate with that data source. You also pass in a item provider, where you configure each of your cells to determine how to display your data in the UI.
      
      ```swift
-     dataSource = OutlineViewDiffableDataSource<Section, Item>(outlineView: outlineView, cellProvider: {
+     dataSource = OutlineViewDiffableDataSource<Item>(outlineView: outlineView, cellProvider: {
      (outlineView, tableColumn, item) in
      // configure and return cell
      })
@@ -459,7 +503,7 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
      To connect a diffable data source to a outline view, you create the diffable data source using this initializer, passing in the outline view you want to associate with that data source. You also pass in a cell registration, where each of your cells gets determine how to display your data in the UI.
      
      ```swift
-     dataSource = OutlineViewDiffableDataSource<Section, Item>(outlineView: outlineView, cellRegistration: cellRegistration)
+     dataSource = OutlineViewDiffableDataSource<Item>(outlineView: outlineView, cellRegistration: cellRegistration)
      ```
      
      - Parameters:
@@ -485,13 +529,21 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
      */
     public typealias CellProvider = (_ outlineView: NSOutlineView, _ tableColumn: NSTableColumn?, _ identifier: ItemIdentifierType) -> NSView
     
-    /**
-     Returns a representation of the current state of the data in the outline view.
-     
-     A snapshot containing section and item identifiers in the order that they appear in the UI.
-     */
+    /// Returns a representation of the current state of the data in the outline view.
     public func snapshot() -> OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType> {
         currentSnapshot
+    }
+    
+    /// Returns a representation of the current state of the data in the specified item of the collection view.
+    public func snapshot(for item: ItemIdentifierType) -> OutlineViewDiffableDataSourceSnapshot<ItemIdentifierType> {
+        guard currentSnapshot.nodes[item] != nil else { return emptySnapshot() }
+        let current = snapshot()
+        var snapshot = emptySnapshot()
+        snapshot.nodes[item] = .init()
+        current.descendants(of: item).forEach({ snapshot.nodes[$0] = current.nodes[$0] })
+        current.children(of: item).forEach({ snapshot.nodes[$0]?.parent = item })
+        snapshot.updateOrderedItems()
+        return snapshot
     }
     
     /// Returns an empty snapshot.
@@ -660,7 +712,7 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
         if draggedParent == item as? ItemIdentifierType, let last = draggedIndexes.last, (draggedIndexes + [last+1]).contains(index) {
             return []
         }
-        if index == -1, delegate.outlineView(outlineView, isGroupItem: item) {
+        if index == -1, let item = item, delegate.outlineView(outlineView, isGroupItem: item) {
             return []
         }
         if let item = item as? ItemIdentifierType, draggedItems.contains(where: { currentSnapshot.isDescendant(item, of: $0) }) {
