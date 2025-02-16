@@ -40,7 +40,6 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
 
     func initialSetup() {
         clipsToBounds = false
-        stackView.translatesAutoresizingMaskIntoConstraints = false
         stackViewConstraints = addSubview(withConstraint: stackView)
         addSubview(stackView)
     }
@@ -59,16 +58,21 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
     var badgeView: BadgeView?
 
     lazy var textStackView: NSStackView = {
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        secondaryTextField.translatesAutoresizingMaskIntoConstraints = false
         var stackView = NSStackView(views: [textField, secondaryTextField])
         stackView.orientation = .vertical
         stackView.alignment = .leading
+        stackView.translatesAutoresizingMaskIntoConstraints = false
         return stackView
     }()
 
     lazy var stackView: NSStackView = {
+        imageView.translatesAutoresizingMaskIntoConstraints = false
         var stackView = NSStackView(views: [imageView, textStackView])
         stackView.orientation = .horizontal
         stackView.distribution = .fill
+        stackView.translatesAutoresizingMaskIntoConstraints = false
         return stackView
     }()
 
@@ -133,6 +137,7 @@ open class NSListContentView: NSView, NSContentView, EdiitingContentView {
             }
             guard let badgeView = badgeView else { return }
             badgeView.properties = badge
+            badgeView.translatesAutoresizingMaskIntoConstraints = false
             if badge.position == .leading, stackView.arrangedSubviews.first != badgeView {
                 badgeView.removeFromSuperview()
                 stackView.insertArrangedSubview(badgeView, at: 0)
