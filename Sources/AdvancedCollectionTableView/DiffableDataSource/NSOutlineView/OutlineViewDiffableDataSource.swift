@@ -51,8 +51,7 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
     var draggedItems: [ItemIdentifierType] = []
     var draggedParent: ItemIdentifierType?
     var draggedIndexes: [Int] = []
-    var dropItems: [ItemIdentifierType] = []
-    var dropContent: [PasteboardReading] = []
+    var canDrop: NSDragOperation = []
     var isApplyingSnapshot = false
     var didApplyGroupItems = false
     lazy var groupRowTableColumn = NSTableColumn()
@@ -499,6 +498,31 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
         return nil
     }
     
+    /// Returns a preview image of the table row for the specified item.
+    public func previewImage(for item: ItemIdentifierType) -> NSImage? {
+        let columns = outlineView.tableColumns
+        guard !columns.isEmpty else { return nil }
+        return NSImage(combineHorizontal: columns.compactMap({ previewImage(for: item, tableColumn: $0, useColumnWidth: $0 !== columns.last!) }), alignment: .top)
+    }
+    
+    /// Returns a preview image of the table cell for the specified item and table column.
+    public func previewImage(for item: ItemIdentifierType, tableColumn: NSTableColumn) -> NSImage? {
+        previewImage(for: item, tableColumn: tableColumn, useColumnWidth: true)
+    }
+    
+    /// Returns a preview image of the table row for the specified items.
+    public func previewImage(for items: [ItemIdentifierType]) -> NSImage? {
+        NSImage(combineVertical: items.compactMap({ previewImage(for: $0)}).reversed(), alignment: .left)
+    }
+    
+    private func previewImage(for item: ItemIdentifierType, tableColumn: NSTableColumn, useColumnWidth: Bool) -> NSImage? {
+        guard let index = outlineView.tableColumns.firstIndex(of: tableColumn) else { return nil }
+        let view = cellProvider(outlineView, tableColumn, item)
+        view.frame.size = view.systemLayoutSizeFitting(width: tableColumn.width)
+        view.frame.size.width = useColumnWidth ? tableColumn.width : view.frame.size.width
+        return view.renderedImage
+    }
+    
     
     /**
      Creates a diffable data source with the specified cell provider, and connects it to the specified outline view.
@@ -670,6 +694,9 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
             children = currentSnapshot.children(of: parents[0])
         }
         let indexes = self.draggedItems.compactMap({ children.firstIndex(of: $0 ) })
+        
+        if session.source as? NSOutlineView === outlineView {
+        }
         if (parents.isEmpty || parents.count == 1), indexes.isIncrementing() {
             self.draggedParent = parents.first
             self.draggedIndexes = indexes.sorted()
@@ -680,8 +707,6 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
         draggedItems = []
         draggedIndexes = []
         draggedParent = nil
-        dropItems = []
-        dropContent = []
     }
     
     /*
@@ -775,12 +800,9 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
         isApplyingSnapshot = false
     }
     */
-    
-    var previewIndex: Int? = nil
-    var previewParent: ItemIdentifierType? = nil
-    var previewItems: [ItemIdentifierType] = []
-    
+        
     public func outlineView(_ outlineView: NSOutlineView, validateDrop info: any NSDraggingInfo, proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
+        canDrop = []
         if info.draggingSource as? NSOutlineView === outlineView {
             if let item = item as? ItemIdentifierType, draggedItems.contains(item) {
                 return []
@@ -800,19 +822,18 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
             }
             */
             return reorderingHandlers.canReorder?(draggedItems, item as? ItemIdentifierType) ?? true == true ? .move : []
-        } else if let canDrop = droppingHandlers.canDrop {
-            dropItems = []
-            dropContent = info.draggingPasteboard.content
-            if canDrop(dropContent, item as? ItemIdentifierType), let items = droppingHandlers.items?(dropContent, item as? ItemIdentifierType), !items.isEmpty {
-                dropItems = items
-                return .move
+        }
+        if info.draggingSource as? NSTableView !== outlineView {
+            if let canDrag = droppingHandlers.canDrop {
+                self.canDrop = canDrag(info.dropInfo(for: outlineView), item as? ItemIdentifierType)
+                return self.canDrop
             }
         }
         return []
     }
     
     public func outlineView(_ outlineView: NSOutlineView, acceptDrop info: any NSDraggingInfo, item: Any?, childIndex index: Int) -> Bool {
-        if let sourceOutlineView = info.draggingSource as? NSOutlineView, sourceOutlineView === outlineView {
+        if info.draggingSource as? NSOutlineView === outlineView {
             var snapshot = currentSnapshot
             var index = index
             if index == -1 {
@@ -831,13 +852,17 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
             apply(snapshot, reorderingHandlers.animates ? .animated : .withoutAnimation)
             reorderingHandlers.didReorder?(transaction)
             return true
-        } else if !dropItems.isEmpty {
+        }
+        if info.draggingSource as? NSOutlineView !== outlineView, canDrop != [] {
+            let dropInfo = info.dropInfo(for: outlineView)
+            let item = item as? ItemIdentifierType
+            let items = droppingHandlers.items?(dropInfo) ?? []
             var snapshot = snapshot()
-            snapshot.insert(dropItems, atIndex: index, of: item as? ItemIdentifierType)
+            snapshot.insert(items, atIndex: index, of: item)
             let transaction = OutlineViewDiffableDataSourceTransaction<ItemIdentifierType>.init(initial: currentSnapshot, final: snapshot)
-            droppingHandlers.willDrop?(dropContent, item as? ItemIdentifierType, dropItems, transaction)
-            apply(snapshot, droppingHandlers.animates ? .animated : .withoutAnimation)
-            droppingHandlers.didDrop?(dropContent, item as? ItemIdentifierType, dropItems, transaction)
+            droppingHandlers.willDrop?(dropInfo, items, item, transaction)
+            apply(transaction.finalSnapshot, droppingHandlers.animates ? .animated : .withoutAnimation)
+            droppingHandlers.didDrop?(dropInfo, items, item, transaction)
             return true
         }
         return false
@@ -846,6 +871,12 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
     public func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> (any NSPasteboardWriting)? {
         guard let item = item as? ItemIdentifierType else { return nil }
         return NSPasteboardItem(forItem: item)
+    }
+    
+    public func outlineView(_ outlineView: NSOutlineView, updateDraggingItemsForDrag draggingInfo: any NSDraggingInfo) {
+        if canDrop != [], droppingHandlers.previewDroppedItems, let items = droppingHandlers.items?(draggingInfo.dropInfo(for: outlineView)), !items.isEmpty, let image = previewImage(for: items) {
+            draggingInfo.setDraggedImage(image)
+        }
     }
     
     /// Handlers for selecting items.
@@ -1014,15 +1045,23 @@ public class OutlineViewDiffableDataSource<ItemIdentifierType: Hashable>: NSObje
     /// Handlers for dropping items inside the outline view.
     public struct DroppingHandlers {
         /// The handler that determines whether a drop with the pasteboard content is accepted.
-        public var canDrop: ((_ content: [PasteboardReading], _ parent: ItemIdentifierType?) -> (Bool))?
+        public var canDrop: ((_ dropInfo: DropInfo, _ target: ItemIdentifierType?) -> NSDragOperation)?
+        
         /// The handler that determinates the items to be inserted for the pasteboard content.
-        public var items: ((_ content: [PasteboardReading], _ parent: ItemIdentifierType?) -> ([ItemIdentifierType]))?
+        public var items: ((_ dropInfo: DropInfo) -> ([ItemIdentifierType]))?
+        
         /// The handler that gets called before new items are dropped.
-        public var willDrop: ((_ content: [PasteboardReading], _ parent: ItemIdentifierType?, _ newItems: [ItemIdentifierType], _ transaction: OutlineViewDiffableDataSourceTransaction<ItemIdentifierType>) -> ())?
+        public var willDrop: ((_ dropInfo: DropInfo, _ newItems: [ItemIdentifierType], _ target: ItemIdentifierType?, _ transaction: OutlineViewDiffableDataSourceTransaction<ItemIdentifierType>) -> ())?
+        
         /// The handler that gets called after new items are dropped.
-        public var didDrop: ((_ content: [PasteboardReading], _ parent: ItemIdentifierType?, _ newItems: [ItemIdentifierType], _ transaction: OutlineViewDiffableDataSourceTransaction<ItemIdentifierType>) -> ())?
+        public var didDrop: ((_ dropInfo: DropInfo, _ newItems: [ItemIdentifierType], _ target: ItemIdentifierType?, _ transaction: OutlineViewDiffableDataSourceTransaction<ItemIdentifierType>) -> ())?
+        
         /// A Boolean value that indicates whether dropping items is animated.
         public var animates: Bool = false
+        
+        /// A Boolean value that indicates whether the rows for the proposed drop items are previewed.
+        public var previewDroppedItems = true
+        
         /// A Boolean value that indicates whether the dropped items are previewed.
         public var previewItems = true
     }

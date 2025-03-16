@@ -244,6 +244,38 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         dataSource.apply(internalSnapshot, option, completion: completion)
         updateEmptyView(previousIsEmpty: previousIsEmpty)
     }
+    
+    /// Returns a preview image of the collection view item for the specified element.
+    public func previewImage(for element: Element) -> NSImage? {
+        _previewImage(for: element, size: nil)
+    }
+    
+    /// Returns a preview image of the collection view item for the specified element and item size.
+    public func previewImage(for element: Element, size: CGSize) -> NSImage? {
+        _previewImage(for: element, size: size)
+    }
+    
+    /// Returns a preview image of the collection view item for the specified element and item width.
+    public func previewImage(for element: Element, width: CGFloat) -> NSImage? {
+        _previewImage(for: element, width: width)
+    }
+    
+    /// Returns a preview image of the collection view item for the specified element and item height.
+    public func previewImage(for element: Element, height: CGFloat) -> NSImage? {
+        _previewImage(for: element, height: height)
+    }
+    
+    private func _previewImage(for element: Element, size: CGSize? = nil, width: CGFloat? = nil, height: CGFloat? = nil) -> NSImage? {
+        guard let item = itemProvider(collectionView, IndexPath(item: 0, section: 0), element) else { return nil }
+        if width != nil || height != nil {
+            item.view.frame.size = item.view.systemLayoutSizeFitting(width: width, height: height)
+            item.view.frame.size.width = width ?? item.view.frame.size.width
+            item.view.frame.size.height = height ?? item.view.frame.size.height
+        } else {
+            item.view.frame.size = size ?? collectionView.frameForItem(at: IndexPath(item: 0, section: 0))?.size ?? CGSize(512, 512)
+        }
+        return item.view.renderedImage
+    }
 
     // MARK: - Init
 
@@ -266,7 +298,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
     public init(collectionView: NSCollectionView, itemProvider: @escaping ItemProvider) {
         self.collectionView = collectionView
         super.init()
-
+        self.itemProvider = itemProvider
         dataSource = .init(collectionView: collectionView, itemProvider: {
             [weak self] collectionView, indePath, itemID in
             guard let self = self, let item = self.elements[id: itemID] else { return nil }
@@ -287,6 +319,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         collectionView.addGestureRecognizer(dragGesture)
         // collectionView.setDraggingSourceOperationMask(.move, forLocal: true)
     }
+    var itemProvider: ItemProvider!
     
     let dragGesture = DragGestureRecognizer()
     class DragGestureRecognizer: NSGestureRecognizer {
@@ -924,6 +957,19 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         /// A Boolean value that indicates whether reordering elements is animated.
         public var animates: Bool = true
         
+        /**
+         The handler that determines if elements can be dropped to another element while reordering. The default value is `nil` which indicates that elements can't be inserted.
+         
+         To enable dropping of elements to another item while reordering, you also have  to provide ``didDrop``.
+         */
+        var canDrop: ((_ elements: [Element], _ target: Element) -> Bool)?
+        
+        /// The handler that that gets called before dropping elements to another element.
+        var willDrop: ((_ elements: [Element], _ target: Element, _ transaction: DiffableDataSourceTransaction<Section, Element>) -> Void)?
+        
+        /// The handler that that gets called after dropping elements to another element.
+        var didDrop: ((_ elements: [Element], _ target: Element, _ transaction: DiffableDataSourceTransaction<Section, Element>) -> ())?
+        
         /*
         var droppable: Bool {
             canDrop != nil && didDrop != nil
@@ -994,43 +1040,51 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
     
     /// Handlers for dragging pasteboard items inside the collection view.
     public struct DroppingHandlers {
-        public var canDropInto: ((_ content: [PasteboardReading], _ element: Element) -> (Bool))?
-        public var didDropInto: ((_ content: [PasteboardReading], _ element: Element)->())?
-        var isDroppableInto: Bool {
-            canDropInto != nil && didDropInto != nil
-        }
-
-        
         /**
-         The handler that determines the elements to be inserted for the dropping pasteboard content.
+         The handler that determines whether the pasteboard content can be dropped to the collection view.
          
-         - Parameters:
-            - content: The content of the dropping pasteboard.
-            - target: The target element of the drop.
+         - Parameter dropInfo: The information about the proposed drop.
          */
-        public var canDrop: ((_ content: [PasteboardReading]) -> (Bool))?
+        public var canDrop: ((_ dropInfo: DropInfo) -> Bool)?
+        
         /**
          The handler that gets called when pasteboard content is about to drop inside the collection view.
          
          - Parameters:
-            - content: The content of the dropping pasteboard.
-            - target: The target element of the drop.
-            - transaction: The transaction for the drop, if new elements are provided via ``elements``.
+            - dropInfo: The information about the drop.
+            - newElements: The new elements to be inserted for the drop.
+            - transaction: The transaction for the drop.
          */
-        public var willDrop: ((_ content: [PasteboardReading], _ newElements: [Element], _ transaction: DiffableDataSourceTransaction<Section, Element>) -> ())?
+        public var willDrop: ((_ dropInfo: DropInfo, _ newElements: [Element], _ transaction: DiffableDataSourceTransaction<Section, Element>) -> ())?
+        
         /**
          The handler that gets called when pasteboard content was dropped inside the collection view.
          
          - Parameters:
-            - content: The content of the pasteboard.
-            - target: The target element of the drop.
-            - transaction: The transaction for the drop, if new elements are provided via ``elements``.
+            - dropInfo: The information about the drop.
+            - newElements: The new elements that have be inserted for the drop.
+            - transaction: The transaction for the drop.
          */
-        public var didDrop: ((_ content: [PasteboardReading], _ newElements: [Element], _ transaction: DiffableDataSourceTransaction<Section, Element>) -> ())?
-        /// The handler that determinates the elements for the dropping pasteboard content.
-        public var elements: ((_ content: [PasteboardReading]) -> ([Element]))?
+        public var didDrop: ((_ dropInfo: DropInfo, _ newElements: [Element], _ transaction: DiffableDataSourceTransaction<Section, Element>) -> ())?
+        
+        /// The handler that determinates the elements for the proposed drop.
+        public var elements: ((_ dropInfo: DropInfo) -> ([Element]))?
+        
         /// A Boolean value that indicates whether dropping elements is animated.
         public var animates: Bool = true
+        
+        /// A Boolean value that indicates whether the items for the proposed drop elements are previewed.
+        public var previewDroppedElements = true
+        
+        /// The handler that determines whether the proposed drop can be dropped to an element.
+        public var canDropInto: ((_ dropInfo: DropInfo, _ element: Element) -> Bool)?
+        
+        /// The handler that gets called when pasteboard content is dropped to an element.
+        public var didDropInto: ((_ dropInfo: DropInfo, _ element: Element)->())?
+        
+        var isDroppableInto: Bool {
+            canDropInto != nil && didDropInto != nil
+        }
     }
 }
 

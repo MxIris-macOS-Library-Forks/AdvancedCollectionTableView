@@ -67,7 +67,7 @@ class TableSidebarViewController: NSViewController {
                 }]
             }
         }
-
+        
         applySnapshot()
     }
         
