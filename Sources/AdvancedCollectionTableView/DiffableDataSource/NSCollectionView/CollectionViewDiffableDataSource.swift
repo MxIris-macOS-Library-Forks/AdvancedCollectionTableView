@@ -1052,35 +1052,33 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
          
          - Parameters:
             - dropInfo: The information about the drop.
-            - newElements: The new elements to be inserted for the drop.
             - transaction: The transaction for the drop.
          */
-        public var willDrop: ((_ dropInfo: DropInfo, _ newElements: [Element], _ transaction: DiffableDataSourceTransaction<Section, Element>) -> ())?
+        public var willDrop: ((_ dropInfo: DropInfo, _ transaction: DiffableDataSourceTransaction<Section, Element>) -> ())?
         
         /**
          The handler that gets called when pasteboard content was dropped inside the collection view.
          
          - Parameters:
             - dropInfo: The information about the drop.
-            - newElements: The new elements that have be inserted for the drop.
             - transaction: The transaction for the drop.
          */
-        public var didDrop: ((_ dropInfo: DropInfo, _ newElements: [Element], _ transaction: DiffableDataSourceTransaction<Section, Element>) -> ())?
+        public var didDrop: ((_ dropInfo: DropInfo, _ transaction: DiffableDataSourceTransaction<Section, Element>) -> ())?
         
         /// The handler that determinates the elements for the proposed drop.
         public var elements: ((_ dropInfo: DropInfo) -> ([Element]))?
-        
-        /// A Boolean value that indicates whether dropping elements is animated.
-        public var animates: Bool = true
-        
-        /// A Boolean value that indicates whether the items for the proposed drop elements are previewed.
-        public var previewDroppedElements = true
         
         /// The handler that determines whether the proposed drop can be dropped to an element.
         public var canDropInto: ((_ dropInfo: DropInfo, _ element: Element) -> Bool)?
         
         /// The handler that gets called when pasteboard content is dropped to an element.
         public var didDropInto: ((_ dropInfo: DropInfo, _ element: Element)->())?
+        
+        /// A Boolean value that indicates whether dropping elements is animated.
+        public var animates: Bool = true
+        
+        /// A Boolean value that indicates whetherthe proposed drop elements are previewed.
+        public var previewElements = false
         
         var isDroppableInto: Bool {
             canDropInto != nil && didDropInto != nil

@@ -330,11 +330,11 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
     
     /// Returns a preview image of the table row for the specified items.
     public func previewImage(for items: [Item]) -> NSImage? {
-        NSImage(combineVertical: items.compactMap({ previewImage(for: $0)}).reversed(), alignment: .left)
+        return NSImage(combineVertical: items.compactMap({ previewImage(for: $0)}).reversed(), alignment: .left)
     }
     
     private func previewImage(for item: Item, tableColumn: NSTableColumn, useColumnWidth: Bool) -> NSImage? {
-        guard let index = tableView.tableColumns.firstIndex(of: tableColumn) else { return nil }
+        guard tableView.tableColumns.contains(tableColumn) else { return nil }
         let view = cellProvider(tableView, tableColumn, 0, item)
         view.frame.size = view.systemLayoutSizeFitting(width: tableColumn.width)
         view.frame.size.width = useColumnWidth ? tableColumn.width : view.frame.size.width
@@ -587,10 +587,10 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
                 let items = droppingHandlers.items?(dropInfo) ?? []
                 if !items.isEmpty {
                     let transaction = dropItemsTransaction(items, row: row)
-                    droppingHandlers.willDrop?(dropInfo,items, transaction)
+                    droppingHandlers.willDrop?(dropInfo, transaction)
                     apply(transaction.finalSnapshot, droppingHandlers.animates ? .animated : .withoutAnimation)
                     selectItems(items)
-                    droppingHandlers.didDrop?(dropInfo,items, transaction)
+                    droppingHandlers.didDrop?(dropInfo, transaction)
                     return true
                 }
             }
@@ -664,19 +664,18 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
     
     open func tableView(_: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
         if let item = item(forRow: row) {
-            let pasteboardItem = IdentifiablePasteboardItem(for: item, content: draggingHandlers.pasteboardContent?(item))
-            pasteboardItem.row = row
+            let pasteboardItem = NSPasteboardItem(for: item, content: draggingHandlers.pasteboardContent?(item))
             return pasteboardItem
         } else if reorderingHandlers.canReorderSection != nil, let section = section(forRow: row) {
-            let pasteboardItem = IdentifiablePasteboardItem(for: section)
-            pasteboardItem.row = row
+            let pasteboardItem = NSPasteboardItem(for: section)
             return pasteboardItem
         }
         return nil
     }
     
     public func tableView(_ tableView: NSTableView, updateDraggingItemsForDrag draggingInfo: NSDraggingInfo) {
-        if canDrop, droppingHandlers.previewDroppedItems, let items = droppingHandlers.items?(draggingInfo.dropInfo(for: tableView)), !items.isEmpty, let image = previewImage(for: items) {
+        if canDrop, droppingHandlers.previewItems, let items = droppingHandlers.items?(draggingInfo.dropInfo(for: tableView)), !items.isEmpty, let image = previewImage(for: items) {
+            Swift.print("DraggingItems", tableView.frame.size, image.size)
             draggingInfo.setDraggedImage(image)
         }
         /*
@@ -1284,34 +1283,32 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
          
          - Parameters:
             - dropInfo: The information about the drop.
-            - newItems: The new items to be inserted for the drop.
             - transaction: The transaction for the drop.
          */
-        public var willDrop: ((_ dropInfo: DropInfo, _ newItems: [Item], _ transaction: DiffableDataSourceTransaction<Section, Item>) -> ())?
+        public var willDrop: ((_ dropInfo: DropInfo, _ transaction: DiffableDataSourceTransaction<Section, Item>) -> ())?
         
         /**
          The handler that gets called when pasteboard content was dropped inside the collection view.
          
          - Parameters:
             - dropInfo: The information about the drop.
-            - newItems: The new items that have be inserted for the drop.
             - transaction: The transaction for the drop.
          */
-        public var didDrop: ((_ dropInfo: DropInfo, _ newItems: [Item], _ transaction: DiffableDataSourceTransaction<Section, Item>) -> ())?
+        public var didDrop: ((_ dropInfo: DropInfo, _ transaction: DiffableDataSourceTransaction<Section, Item>) -> ())?
         
         public var updateDragItems: ((_ dropInfo: DropInfo)->())?
-        
-        /// A Boolean value that indicates whether dropping items is animated.
-        public var animates: Bool = true
-        
-        /// A Boolean value that indicates whether the rows for the proposed drop items are previewed.
-        public var previewDroppedItems = true
 
         /// The handler that determines whether the proposed drop can be dropped to an item.
         public var canDropInto: ((_ dropInfo: DropInfo, _ item: Item) -> Bool)?
         
         /// The handler that gets called when pasteboard content is dropped to an item.
         public var didDropInto: ((_ dropInfo: DropInfo, _ item: Item)->())?
+        
+        /// A Boolean value that indicates whether new items are inserted animated.
+        public var animates: Bool = true
+        
+        /// A Boolean value that indicates whether the rows for the proposed drop items are previewed.
+        public var previewItems = false
         
         var isDroppableInto: Bool {
             canDropInto != nil && didDropInto != nil
@@ -1437,22 +1434,6 @@ extension TableViewDiffableDataSource {
     }
 }
 
-
-extension NSPasteboardItem {
-    convenience init<Element: Identifiable & Hashable>(for element: Element, content: [PasteboardWriting]? = nil) {
-        self.init(content: content ?? [])
-        setString(String(element.id.hashValue), forType: .itemID)
-    }
-    
-    convenience init<Item: Hashable>(forItem item: Item, content: [PasteboardWriting]? = nil) {
-        self.init(content: content ?? [])
-        setString(String(describing: item), forType: .itemID)
-    }
-}
-
-class IdentifiablePasteboardItem: NSPasteboardItem {
-    var row: Int = 0
-}
 
 extension CGRect {
     func distance(from point: CGPoint) -> CGFloat {

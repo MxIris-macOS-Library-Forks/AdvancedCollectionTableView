@@ -256,10 +256,10 @@ extension CollectionViewDiffableDataSource {
                 return true
             } else if dropOperation == .before, !droppingElements.isEmpty {
                 let transaction: DiffableDataSourceTransaction<Section, Element> = dataSource.dropTransaction(droppingElements, indexPath: indexPath)
-                dataSource.droppingHandlers.willDrop?(dropInfo, droppingElements, transaction)
+                dataSource.droppingHandlers.willDrop?(dropInfo, transaction)
                 dataSource.apply(transaction.finalSnapshot, dataSource.droppingHandlers.animates ? .animated : .withoutAnimation)
                 dataSource.selectElements(droppingElements, scrollPosition: [])
-                dataSource.droppingHandlers.didDrop?(dropInfo, droppingElements, transaction)
+                dataSource.droppingHandlers.didDrop?(dropInfo, transaction)
                 return true
             }
             return false
@@ -314,7 +314,7 @@ extension CollectionViewDiffableDataSource {
         }
         
         func collectionView(_ collectionView: NSCollectionView, updateDraggingItemsForDrag draggingInfo: any NSDraggingInfo) {
-            if !droppingElements.isEmpty, dataSource.droppingHandlers.previewDroppedElements {
+            if !droppingElements.isEmpty, dataSource.droppingHandlers.previewElements {
             }
         }
     }
