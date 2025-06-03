@@ -44,7 +44,7 @@ class TableSidebarViewController: NSViewController {
         dataSource.reorderingHandlers.canReorder = { selectedItems in return selectedItems }
         
         /// Enables deleting selected rows via backspace key.
-        dataSource.deletingHandlers.canDelete = { selectedItems in return selectedItems  }
+        dataSource.deletingHandlers.canDelete = { selectedItems in return selectedItems }
         
         /// Enable dropping strings to the table view by checking if the drop contains strings.
         dataSource.droppingHandlers.canDrop = { drop in
@@ -60,14 +60,14 @@ class TableSidebarViewController: NSViewController {
         dataSource.rowActionProvider = { swippedItem, edge in
             if edge == .leading {
                 /// Left swipe
-                return [NSTableViewRowAction.regular("SomeTest", color: .systemYellow) { _,_ in
+                return [NSTableViewRowAction.regular(symbolName: swippedItem.isFavorite ? "star" : "star.fill", color: .systemYellow) { _,_ in
                         swippedItem.isFavorite = !swippedItem.isFavorite
                         self.dataSource.reconfigureItems([swippedItem])
                         self.tableView.rowActionsVisible = false
-                    }, ]
+                    }]
             } else {
                 /// Right swipe
-                return [NSTableViewRowAction.regular("SomeTest") { _,_ in
+                return [NSTableViewRowAction.destructive(symbolName: "trash.fill") { _,_ in
                     var snapshot = self.dataSource.snapshot()
                     snapshot.deleteItems([swippedItem])
                     self.dataSource.apply(snapshot)
