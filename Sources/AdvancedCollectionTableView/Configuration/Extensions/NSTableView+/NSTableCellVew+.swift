@@ -28,6 +28,9 @@ extension NSTableCellView {
             setAssociatedValue(newValue, key: "contentConfiguration")
             observeCellView()
             configurateContentView()
+            if newValue is AutomaticHeightSizable {
+                observeWillMoveToRowView()
+            }
         }
     }
 
@@ -272,9 +275,6 @@ extension NSTableCellView {
             tableViewObservation = observeChanges(for: \.window) { [weak self] _, window in
                 guard window != nil, let self = self, let tableView = self.tableView else { return }
                 tableView.setupObservation()
-                if self.contentConfiguration is AutomaticHeightSizable {
-                    tableView.usesAutomaticRowHeights = true
-                }
                 self.updateContentConfigurationStyle()
                 self.setNeedsAutomaticUpdateConfiguration()
                 guard let rowView = self.rowView else { return }
@@ -289,5 +289,20 @@ extension NSTableCellView {
     var tableViewObservation: KeyValueObservation? {
         get { getAssociatedValue("tableViewObservation") }
         set { setAssociatedValue(newValue, key: "tableViewObservation") }
+    }
+    
+    func observeWillMoveToRowView() {
+        if let tableView = tableView {
+            tableView.enableAutomaticRowHeights()
+        } else if !isMethodHooked(#selector(NSView.viewWillMove(toSuperview:))) {
+            do {
+                try hookBefore(#selector(NSView.viewWillMove(toSuperview:)), closure: {
+                    object, selector, superview in
+                    (superview as? NSTableRowView)?.observeWillMoveToTableView()
+                } as @convention(block) (AnyObject, Selector, NSView?) -> ())
+            } catch {
+                Swift.print(error)
+            }
+        }
     }
 }
