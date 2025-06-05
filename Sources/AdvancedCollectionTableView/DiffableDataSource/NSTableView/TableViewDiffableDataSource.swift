@@ -809,17 +809,40 @@ open class TableViewDiffableDataSource<Section, Item>: NSObject, NSTableViewData
         }
     }
     
-    /// Reloads the table view cells for the specified items.
+    /// Reloads the table row views and cells for the specified items.
     open func reloadItems(_ items: [Item], animated: Bool = false) {
         var snapshot = snapshot()
         snapshot.reloadItems(items)
         apply(snapshot, animated ? .animated : .withoutAnimation)
     }
     
-    /// Updates the data for the specified items, preserving the existing table view cells for the items.
+    /// Updates the data for the specified items, preserving the existing table row views and cells for the items.
     open func reconfigureItems(_ items: [Item]) {
         let rows = IndexSet(items.compactMap { row(for: $0) })
         tableView.reconfigureRows(at: rows)
+    }
+    
+    /**
+     Updates the section header data for the specified sections.
+     
+     This method only updates section headers and not items of the section. It only works, if you provided ``sectionHeaderCellProvider-swift.property`` or section header registration using ``applySectionHeaderRegistration(_:)``.
+     */
+    open func reloadSectionHeaders(_ sections: [Section]) {
+        guard sectionHeaderCellProvider != nil else { return }
+        let rows = IndexSet(sections.compactMap { row(for: $0) })
+        tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet([0]))
+    }
+    
+    /**
+     Updates the section header data for the specified sections, preserving existing headers.
+
+     This method only updates section headers and not items of the section. It only works, if you provided ``sectionHeaderCellProvider-swift.property`` or section header registration using ``applySectionHeaderRegistration(_:)``.
+     */
+    open func reconfigureSectionHeaders(_ sections: [Section]) {
+        guard sectionHeaderCellProvider != nil else { return }
+        let rows = IndexSet(sections.compactMap { row(for: $0) })
+        tableView.reconfigureRows(at: rows)
+
     }
     
     /// The items that are visible.
