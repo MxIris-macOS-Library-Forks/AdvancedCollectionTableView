@@ -45,12 +45,12 @@ import QuickLookUI
 open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, Element: Identifiable & Hashable>: NSObject, NSCollectionViewDataSource {
     weak var collectionView: NSCollectionView!
     var dataSource: NSCollectionViewDiffableDataSource<Section.ID, Element.ID>!
-    var delegate: Delegate!
     var currentSnapshot = NSDiffableDataSourceSnapshot<Section, Element>()
-    var previousDisplayingItems = [Element.ID]()
-    var rightDownMonitor: NSEvent.Monitor?
-    var keyDownMonitor: NSEvent.Monitor?
-    var hoveredItemObserver: KeyValueObservation?
+    private var delegate: Delegate!
+    private var previousDisplayingItems = [Element.ID]()
+    private var rightDownMonitor: NSEvent.Monitor?
+    private var keyDownMonitor: NSEvent.Monitor?
+    private var hoveredItemObserver: KeyValueObservation?
 
     /// The closure that configures and returns the collection view’s supplementary views, such as headers and footers, from the diffable data source.
     open var supplementaryViewProvider: SupplementaryViewProvider?
@@ -148,14 +148,14 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         }
     }
     
-    var doubleClickGesture: DoubleClickGestureRecognizer?
+    private var doubleClickGesture: DoubleClickGestureRecognizer?
     
     func item(for element: Element) -> NSCollectionViewItem? {
         guard let indexPath = indexPath(for: element) else { return nil }
         return collectionView.item(at: indexPath)
     }
 
-    func observeHoveredItem() {
+    private func observeHoveredItem() {
         if hoverHandlers.shouldObserve {
             collectionView.setupObservation()
             if hoveredItemObserver == nil {
@@ -174,7 +174,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         }
     }
 
-    func observeDisplayingItems() {
+    private func observeDisplayingItems() {
         if displayHandlers.shouldObserve {
             collectionView.enclosingScrollView?.contentView.postsBoundsChangedNotifications = true
             NotificationCenter.default.addObserver(self,
@@ -206,7 +206,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         previousDisplayingItems = displayingItems
     }
 
-    func observeKeyDown() {
+    private func observeKeyDown() {
         if let canDelete = deletingHandlers.canDelete {
             keyDownMonitor = NSEvent.localMonitor(for: .keyDown) { [weak self] event in
                 guard let self = self, event.charactersIgnoringModifiers == String(UnicodeScalar(NSDeleteCharacter)!), self.collectionView.isFirstResponder else { return event }
@@ -340,10 +340,10 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
         collectionView.addGestureRecognizer(dragGesture)
         // collectionView.setDraggingSourceOperationMask(.move, forLocal: true)
     }
-    var itemProvider: ItemProvider!
+    private var itemProvider: ItemProvider!
     
-    let dragGesture = DragGestureRecognizer()
-    class DragGestureRecognizer: NSGestureRecognizer {
+    private let dragGesture = DragGestureRecognizer()
+    private class DragGestureRecognizer: NSGestureRecognizer {
         var downLocation: CGPoint = .zero
         var collectionView: NSCollectionView? {
             view as? NSCollectionView
@@ -694,7 +694,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
                 if let emptyContentView = emptyContentView {
                     emptyContentView.view = newValue
                 } else {
-                    emptyContentView = EmptyView(view: newValue)
+                    emptyContentView = .init(view: newValue)
                 }
                 updateEmptyView()
             } else {
@@ -716,7 +716,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
                 if let emptyContentView = emptyContentView {
                     emptyContentView.configuration = configuration
                 } else {
-                    emptyContentView = EmptyView(configuration: configuration)
+                    emptyContentView = .init(configuration: configuration)
                 }
                 updateEmptyView()
             } else {
@@ -725,9 +725,7 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
             }
         }
     }
-    
-    var emptyContentView: EmptyView?
-    
+        
     /**
      The handler that gets called when the data source switches between an empty and non-empty snapshot or viceversa.
 
@@ -740,15 +738,16 @@ open class CollectionViewDiffableDataSource<Section: Identifiable & Hashable, El
             emptyHandler?(currentSnapshot.isEmpty)
         }
     }
+    
+    private var emptyContentView: EmptyCollectionTableView?
         
-    func updateEmptyView(previousIsEmpty: Bool? = nil) {
+    private func updateEmptyView(previousIsEmpty: Bool? = nil) {
         if currentSnapshot.numberOfItems != 0 {
-            emptyView?.removeFromSuperview()
             emptyContentView?.removeFromSuperview()
         } else if let emptyContentView = emptyContentView, emptyContentView.superview != collectionView {
             collectionView.addSubview(withConstraint: emptyContentView)
         }
-        if let emptyHandler = self.emptyHandler, let previousIsEmpty = previousIsEmpty, previousIsEmpty != currentSnapshot.isEmpty {
+        if let emptyHandler = emptyHandler, let previousIsEmpty = previousIsEmpty, previousIsEmpty != currentSnapshot.isEmpty {
             emptyHandler(currentSnapshot.isEmpty)
         }
      }

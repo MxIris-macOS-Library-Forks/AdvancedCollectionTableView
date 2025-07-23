@@ -43,16 +43,16 @@ public class OutlineViewDiffableDataSource<Item: Hashable>: NSObject, NSOutlineV
     weak var outlineView: NSOutlineView!
     var currentSnapshot = OutlineViewDiffableDataSourceSnapshot<Item>()
     let cellProvider: CellProvider
-    var keyDownMonitor: NSEvent.Monitor?
-    var hoveredRowObserver: KeyValueObservation?
-    var delegate: Delegate!
-    var draggedItems: [Item] = []
-    var reorderingItems: [Item] = []
-    var draggedParent: Item?
-    var draggedIndexes: [Int] = []
-    var canDrop = false
     var isApplyingSnapshot = false
-    lazy var groupRowTableColumn = NSTableColumn()
+    private var keyDownMonitor: NSEvent.Monitor?
+    private var hoveredRowObserver: KeyValueObservation?
+    private  var delegate: Delegate!
+    private var draggedItems: [Item] = []
+    private var reorderingItems: [Item] = []
+    private var draggedParent: Item?
+    private var draggedIndexes: [Int] = []
+    private var canDrop = false
+    private lazy var groupRowTableColumn = NSTableColumn()
     
     /// The closure that configures and returns the outline view’s row views from the diffable data source.
     open var rowViewProvider: RowViewProvider?
@@ -193,7 +193,7 @@ public class OutlineViewDiffableDataSource<Item: Hashable>: NSObject, NSOutlineV
         }
     }
     
-    var doubleClickGesture: DoubleClickGestureRecognizer?
+    private var doubleClickGesture: DoubleClickGestureRecognizer?
     
     /// The handlers for selecting items.
     open var selectionHandlers = SelectionHandlers()
@@ -298,7 +298,7 @@ public class OutlineViewDiffableDataSource<Item: Hashable>: NSObject, NSOutlineV
                 if let emptyContentView = emptyContentView {
                     emptyContentView.view = newValue
                 } else {
-                    emptyContentView = EmptyView(view: newValue)
+                    emptyContentView = .init(view: newValue)
                 }
                 updateEmptyView()
             } else {
@@ -320,7 +320,7 @@ public class OutlineViewDiffableDataSource<Item: Hashable>: NSObject, NSOutlineV
                 if let emptyContentView = emptyContentView {
                     emptyContentView.configuration = configuration
                 } else {
-                    emptyContentView = EmptyView(configuration: configuration)
+                    emptyContentView = .init(configuration: configuration)
                 }
                 updateEmptyView()
             } else {
@@ -329,9 +329,7 @@ public class OutlineViewDiffableDataSource<Item: Hashable>: NSObject, NSOutlineV
             }
         }
     }
-    
-    var emptyContentView: EmptyView?
-    
+        
     /**
      The handler that gets called when the data source switches between an empty and non-empty snapshot or viceversa.
      
@@ -345,17 +343,16 @@ public class OutlineViewDiffableDataSource<Item: Hashable>: NSObject, NSOutlineV
         }
     }
     
-    func updateEmptyView(previousIsEmpty: Bool? = nil) {
+    private var emptyContentView: EmptyCollectionTableView?
+    
+    private func updateEmptyView(previousIsEmpty: Bool? = nil) {
         if !currentSnapshot.items.isEmpty {
-            emptyView?.removeFromSuperview()
             emptyContentView?.removeFromSuperview()
         } else if let emptyContentView = emptyContentView, emptyContentView.superview != outlineView {
             outlineView.addSubview(withConstraint: emptyContentView)
         }
-        if let emptyHandler = self.emptyHandler, let previousIsEmpty = previousIsEmpty {
-            if previousIsEmpty != currentSnapshot.items.isEmpty {
-                emptyHandler(currentSnapshot.items.isEmpty)
-            }
+        if let emptyHandler = emptyHandler, let previousIsEmpty = previousIsEmpty, previousIsEmpty != currentSnapshot.items.isEmpty {
+            emptyHandler(currentSnapshot.items.isEmpty)
         }
     }
     
